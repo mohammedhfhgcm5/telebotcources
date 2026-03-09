@@ -1,0 +1,63 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+generator client_js {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+
+model Admin {
+  id BigInt @id
+}
+
+model Year {
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  terms Term[]
+}
+
+model Term {
+  id     Int @id @default(autoincrement())
+  name   String
+  yearId Int
+
+  year    Year @relation(fields: [yearId], references: [id])
+  courses Course[]
+
+  @@unique([name, yearId])
+}
+
+model Course {
+  id      Int @id @default(autoincrement())
+  name    String
+  // Legacy single-file field; kept for backward compatibility.
+  fileId  String?
+  termId  Int
+
+  term  Term       @relation(fields: [termId], references: [id])
+  files CourseFile[]
+}
+
+model CourseFile {
+  id        Int      @id @default(autoincrement())
+  fileId    String
+  name      String?
+  courseId  Int
+  createdAt DateTime @default(now())
+
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
