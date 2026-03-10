@@ -48,7 +48,7 @@ export class BotService implements OnModuleInit {
   bot = new Telegraf(process.env.BOT_TOKEN!)
   private readonly userStates = new Map<number, UserState>()
 
-  onModuleInit() {
+  async onModuleInit() {
     this.bot.start(async ctx => {
       this.clearUserState(ctx)
       await this.showMainMenu(ctx, 'أهلا بك في بوت الملفات. اختر العملية:')
@@ -72,7 +72,11 @@ export class BotService implements OnModuleInit {
       await this.handleDocumentInput(ctx)
     })
 
-    this.bot.launch()
+    const appUrl = process.env.APP_URL
+    if (!appUrl) {
+      throw new Error('APP_URL is required to set the Telegram webhook.')
+    }
+    await this.bot.telegram.setWebhook(`${appUrl}/telegram`)
   }
 
   private async isAdmin(userId: number): Promise<boolean> {
