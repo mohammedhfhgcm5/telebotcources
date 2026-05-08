@@ -76,7 +76,14 @@ export class BotService implements OnModuleInit {
     if (!appUrl) {
       throw new Error('APP_URL is required to set the Telegram webhook.')
     }
-    await this.bot.telegram.setWebhook(`${appUrl}/telegram`)
+   await this.bot.telegram.deleteWebhook()
+
+await this.bot.telegram.setWebhook(
+  `${appUrl}/telegram`,
+  {
+    drop_pending_updates: true,
+  },
+)
   }
 
   private async isAdmin(userId: number): Promise<boolean> {
