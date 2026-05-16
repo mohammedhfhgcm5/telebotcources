@@ -29,12 +29,9 @@ model Admin {
 }
 
 model Year {
-  id            Int           @id @default(autoincrement())
-  name          String
-  educationType EducationType
-  terms         Term[]
-
-  @@unique([name, educationType])
+  id    Int    @id @default(autoincrement())
+  name  String @unique
+  terms Term[]
 }
 
 model Term {
@@ -49,7 +46,7 @@ model Term {
 }
 
 model Course {
-  id     Int    @id @default(autoincrement())
+  id     Int     @id @default(autoincrement())
   name   String
   fileId String?
   termId Int
@@ -59,14 +56,16 @@ model Course {
 }
 
 model CourseFile {
-  id        Int          @id @default(autoincrement())
-  fileId    String
-  name      String?
-  fileType  FileType     @default(SUMMARY)
-  courseId  Int
-  createdAt DateTime     @default(now())
+  id            Int           @id @default(autoincrement())
+  fileId        String
+  name          String?
+  fileType      FileType      @default(SUMMARY)
+  educationType EducationType @default(GENERAL)
+  courseId      Int
+  createdAt     DateTime      @default(now())
 
   course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
 
   @@index([courseId])
+  @@index([courseId, educationType, fileType])
 }

@@ -2,13 +2,13 @@ import { Injectable, OnModuleInit } from '@nestjs/common'
 import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
-// ─── Channel URL ────────────────────────────────────────────────────────────
+// ─── Channel URL ─────────────────────────────────────────────────────────────
 const CHANNEL_URL = 'https://t.me/HT3n3DPJ0iw4N2Nk'
 
-// ─── Keep-alive server URL ───────────────────────────────────────────────────
+// ─── Keep-alive ───────────────────────────────────────────────────────────────
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
-// ─── Buttons ─────────────────────────────────────────────────────────────────
+// ─── Buttons ──────────────────────────────────────────────────────────────────
 const BUTTONS = {
   browse: '📚 تصفح الملفات',
   channelLink: '📢 رابط القناة الرئيسية',
@@ -39,7 +39,7 @@ const BUTTONS = {
   mainMenu: '🏠 القائمة الرئيسية',
 } as const
 
-// ─── Education type helpers ───────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 type EducationType = 'GENERAL' | 'OPEN'
 type FileType = 'SUMMARY' | 'BANK' | 'GOLDEN' | 'COURSES' | 'RECORDINGS'
 
@@ -56,6 +56,11 @@ const FILE_TYPE_LABELS: Record<FileType, string> = {
   RECORDINGS: 'تسجيلات المادة',
 }
 
+const EDU_TYPE_BUTTONS: Record<string, EducationType> = {
+  [BUTTONS.generalEdu]: 'GENERAL',
+  [BUTTONS.openEdu]: 'OPEN',
+}
+
 const FILE_TYPE_BUTTONS: Record<string, FileType> = {
   [BUTTONS.ftSummary]: 'SUMMARY',
   [BUTTONS.ftBank]: 'BANK',
@@ -64,19 +69,16 @@ const FILE_TYPE_BUTTONS: Record<string, FileType> = {
   [BUTTONS.ftRecordings]: 'RECORDINGS',
 }
 
-const ALL_FILE_TYPE_BUTTONS = Object.keys(FILE_TYPE_BUTTONS)
-
 // ─── User state ───────────────────────────────────────────────────────────────
 type UserState =
   | { mode: 'idle' }
-  | { mode: 'browseEduType' }
-  | { mode: 'browseYear'; eduType: EducationType }
-  | { mode: 'browseTerm'; eduType: EducationType; yearId: number }
-  | { mode: 'browseCourse'; eduType: EducationType; yearId: number; termId: number }
-  | { mode: 'browseFileType'; eduType: EducationType; yearId: number; termId: number; courseId: number }
+  | { mode: 'browseYear' }
+  | { mode: 'browseTerm'; yearId: number }
+  | { mode: 'browseCourse'; yearId: number; termId: number }
+  | { mode: 'browseEduType'; yearId: number; termId: number; courseId: number }
+  | { mode: 'browseFileType'; yearId: number; termId: number; courseId: number; eduType: EducationType }
   | { mode: 'adminPanel' }
-  | { mode: 'addYearEduType' }
-  | { mode: 'addYearName'; eduType: EducationType }
+  | { mode: 'addYearName' }
   | { mode: 'addTermYear' }
   | { mode: 'addTermName'; yearId: number }
   | { mode: 'addCourseYear' }
@@ -85,8 +87,9 @@ type UserState =
   | { mode: 'addFileYear' }
   | { mode: 'addFileTerm'; yearId: number }
   | { mode: 'addFileCourse'; yearId: number; termId: number }
-  | { mode: 'addFileType'; yearId: number; termId: number; courseId: number }
-  | { mode: 'addFileUpload'; yearId: number; termId: number; courseId: number; fileType: FileType }
+  | { mode: 'addFileEduType'; yearId: number; termId: number; courseId: number }
+  | { mode: 'addFileType'; yearId: number; termId: number; courseId: number; eduType: EducationType }
+  | { mode: 'addFileUpload'; yearId: number; termId: number; courseId: number; eduType: EducationType; fileType: FileType }
   | { mode: 'deleteFileYear' }
   | { mode: 'deleteFileTerm'; yearId: number }
   | { mode: 'deleteFileCourse'; yearId: number; termId: number }
@@ -102,7 +105,7 @@ export class BotService implements OnModuleInit {
   private readonly userStates = new Map<number, UserState>()
   private keepAliveInterval: NodeJS.Timeout | null = null
 
-  // ─── Lifecycle ─────────────────────────────────────────────────────────────
+  // ─── Lifecycle ──────────────────────────────────────────────────────────────
   async onModuleInit() {
     this.startKeepAlive()
 
@@ -118,7 +121,7 @@ export class BotService implements OnModuleInit {
 
     this.bot.command('files', async ctx => {
       this.clearUserState(ctx)
-      await this.showEduTypeSelection(ctx)
+      await this.showYearsForBrowse(ctx)
     })
 
     this.bot.on('text', async ctx => {
@@ -130,36 +133,27 @@ export class BotService implements OnModuleInit {
     })
 
     const appUrl = process.env.APP_URL
-    if (!appUrl) {
-      throw new Error('APP_URL is required to set the Telegram webhook.')
-    }
+    if (!appUrl) throw new Error('APP_URL is required to set the Telegram webhook.')
     await this.bot.telegram.deleteWebhook()
-    await this.bot.telegram.setWebhook(`${appUrl}/telegram`, {
-      drop_pending_updates: true,
-    })
+    await this.bot.telegram.setWebhook(`${appUrl}/telegram`, { drop_pending_updates: true })
   }
 
-  // ─── Keep-alive ────────────────────────────────────────────────────────────
+  // ─── Keep-alive ─────────────────────────────────────────────────────────────
   private startKeepAlive() {
-    // Ping immediately on start
     this.pingServer()
-
-    // Then ping every 1 hour (3,600,000 ms)
-    this.keepAliveInterval = setInterval(() => {
-      this.pingServer()
-    }, 60 * 60 * 1000)
+    this.keepAliveInterval = setInterval(() => this.pingServer(), 60 * 60 * 1000)
   }
 
   private async pingServer() {
     try {
       const res = await fetch(KEEP_ALIVE_URL)
-      console.log(`[Keep-alive] Pinged ${KEEP_ALIVE_URL} → ${res.status}`)
+      console.log(`[Keep-alive] ${KEEP_ALIVE_URL} → ${res.status}`)
     } catch (err) {
       console.error('[Keep-alive] Ping failed:', err)
     }
   }
 
-  // ─── Admin check ───────────────────────────────────────────────────────────
+  // ─── Admin check ────────────────────────────────────────────────────────────
   private async isAdmin(userId: number): Promise<boolean> {
     try {
       const admin = await this.prisma.admin.findUnique({
@@ -182,7 +176,7 @@ export class BotService implements OnModuleInit {
     return true
   }
 
-  // ─── Main menu ─────────────────────────────────────────────────────────────
+  // ─── Main menu ──────────────────────────────────────────────────────────────
   private async showMainMenu(ctx: any, text = 'اختر العملية:') {
     this.setUserState(ctx, { mode: 'idle' })
     const userId = ctx.from?.id
@@ -190,7 +184,7 @@ export class BotService implements OnModuleInit {
     await ctx.reply(text, this.mainKeyboard(admin))
   }
 
-  // ─── Admin panel ───────────────────────────────────────────────────────────
+  // ─── Admin panel ────────────────────────────────────────────────────────────
   private async showAdminPanel(ctx: any) {
     const userId = ctx.from?.id
     if (!(await this.ensureAdminAccess(ctx, userId))) return
@@ -198,99 +192,82 @@ export class BotService implements OnModuleInit {
     await ctx.reply('لوحة الإدارة:', this.adminKeyboard())
   }
 
-  // ─── Browse: Education type ────────────────────────────────────────────────
-  private async showEduTypeSelection(ctx: any, text = 'اختر نوع التعليم:') {
-    this.setUserState(ctx, { mode: 'browseEduType' })
-    await ctx.reply(text, this.eduTypeKeyboard())
-  }
-
-  // ─── Browse: Years ─────────────────────────────────────────────────────────
-  private async showYearsForBrowse(ctx: any, eduType: EducationType, text = 'اختر السنة:') {
+  // ─── Browse: Years ──────────────────────────────────────────────────────────
+  private async showYearsForBrowse(ctx: any, text = 'اختر السنة:') {
     try {
-      const years = await this.prisma.year.findMany({
-        where: { educationType: eduType },
-        orderBy: { name: 'asc' },
-      })
-
+      const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
       if (years.length === 0) {
-        await this.showEduTypeSelection(ctx, 'لا توجد سنوات لهذا النوع. اختر نوع تعليم آخر:')
+        await this.showMainMenu(ctx, 'لا توجد سنوات حاليا.')
         return
       }
-
-      this.setUserState(ctx, { mode: 'browseYear', eduType })
+      this.setUserState(ctx, { mode: 'browseYear' })
       await ctx.reply(text, this.yearsKeyboard(years))
     } catch (error) {
-      console.error('Error fetching years:', error)
+      console.error(error)
       await ctx.reply('حدث خطأ في جلب السنوات.')
     }
   }
 
-  // ─── Browse: Terms ─────────────────────────────────────────────────────────
-  private async showTermsForBrowse(ctx: any, eduType: EducationType, yearId: number) {
+  // ─── Browse: Terms ──────────────────────────────────────────────────────────
+  private async showTermsForBrowse(ctx: any, yearId: number) {
     try {
-      const terms = await this.prisma.term.findMany({
-        where: { yearId },
-        orderBy: { name: 'asc' },
-      })
-
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
       if (terms.length === 0) {
-        await this.showYearsForBrowse(ctx, eduType, 'لا توجد فصول في هذه السنة. اختر سنة أخرى:')
+        await this.showYearsForBrowse(ctx, 'لا توجد فصول في هذه السنة. اختر سنة أخرى:')
         return
       }
-
-      this.setUserState(ctx, { mode: 'browseTerm', eduType, yearId })
+      this.setUserState(ctx, { mode: 'browseTerm', yearId })
       await ctx.reply('اختر الفصل:', this.termsKeyboard(terms))
     } catch (error) {
-      console.error('Error fetching terms:', error)
+      console.error(error)
       await ctx.reply('حدث خطأ في جلب الفصول.')
     }
   }
 
-  // ─── Browse: Courses ───────────────────────────────────────────────────────
-  private async showCoursesForBrowse(
-    ctx: any,
-    eduType: EducationType,
-    yearId: number,
-    termId: number,
-  ) {
+  // ─── Browse: Courses ────────────────────────────────────────────────────────
+  private async showCoursesForBrowse(ctx: any, yearId: number, termId: number) {
     try {
-      const courses = await this.prisma.course.findMany({
-        where: { termId },
-        orderBy: { name: 'asc' },
-      })
-
+      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
       if (courses.length === 0) {
-        await this.showTermsForBrowse(ctx, eduType, yearId)
+        await this.showTermsForBrowse(ctx, yearId)
         return
       }
-
-      this.setUserState(ctx, { mode: 'browseCourse', eduType, yearId, termId })
+      this.setUserState(ctx, { mode: 'browseCourse', yearId, termId })
       await ctx.reply('اختر المادة:', this.coursesKeyboard(courses))
     } catch (error) {
-      console.error('Error fetching courses:', error)
+      console.error(error)
       await ctx.reply('حدث خطأ في جلب المواد.')
     }
   }
 
-  // ─── Browse: File type selection ───────────────────────────────────────────
-  private async showFileTypeSelection(
-    ctx: any,
-    eduType: EducationType,
-    yearId: number,
-    termId: number,
-    courseId: number,
-  ) {
-    this.setUserState(ctx, { mode: 'browseFileType', eduType, yearId, termId, courseId })
-    await ctx.reply('اختر نوع الملف:', this.fileTypeKeyboard())
+  // ─── Browse: Edu type (after course) ───────────────────────────────────────
+  private async showEduTypeForBrowse(ctx: any, yearId: number, termId: number, courseId: number) {
+    this.setUserState(ctx, { mode: 'browseEduType', yearId, termId, courseId })
+    await ctx.reply('اختر نوع التعليم:', this.eduTypeKeyboard())
   }
 
-  // ─── Browse: Files by type ─────────────────────────────────────────────────
-  private async showFilesForBrowse(
+  // ─── Browse: File type ──────────────────────────────────────────────────────
+  private async showFileTypeForBrowse(
     ctx: any,
-    eduType: EducationType,
     yearId: number,
     termId: number,
     courseId: number,
+    eduType: EducationType,
+  ) {
+    this.setUserState(ctx, { mode: 'browseFileType', yearId, termId, courseId, eduType })
+    await ctx.reply(
+      `نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nاختر نوع الملف:`,
+      this.fileTypeKeyboard(),
+    )
+  }
+
+  // ─── Browse: Files ──────────────────────────────────────────────────────────
+  private async showFilesForBrowse(
+    ctx: any,
+    yearId: number,
+    termId: number,
+    courseId: number,
+    eduType: EducationType,
     fileType: FileType,
   ) {
     try {
@@ -298,20 +275,22 @@ export class BotService implements OnModuleInit {
         where: { id: courseId },
         include: {
           files: {
-            where: { fileType },
+            where: { educationType: eduType, fileType },
             orderBy: { id: 'desc' },
           },
         },
       })
 
       if (!course || course.termId !== termId) {
-        await this.showCoursesForBrowse(ctx, eduType, yearId, termId)
+        await this.showCoursesForBrowse(ctx, yearId, termId)
         return
       }
 
       if (course.files.length === 0) {
-        await ctx.reply(`لا توجد ملفات من نوع "${FILE_TYPE_LABELS[fileType]}" لهذه المادة.`)
-        await this.showFileTypeSelection(ctx, eduType, yearId, termId, courseId)
+        await ctx.reply(
+          `لا توجد ملفات من نوع "${FILE_TYPE_LABELS[fileType]}" لـ${EDU_TYPE_LABELS[eduType]} في هذه المادة.`,
+        )
+        await this.showFileTypeForBrowse(ctx, yearId, termId, courseId, eduType)
         return
       }
 
@@ -325,314 +304,210 @@ export class BotService implements OnModuleInit {
         }
       }
 
-      await this.showYearsForBrowse(ctx, eduType, 'تم إرسال الملفات. اختر السنة:')
+      await this.showYearsForBrowse(ctx, 'تم إرسال الملفات. اختر السنة:')
     } catch (error) {
-      console.error('Error fetching files:', error)
+      console.error(error)
       await ctx.reply('حدث خطأ في جلب الملفات.')
     }
   }
 
-  // ─── Admin: Add year (step 1 - edu type) ──────────────────────────────────
-  private async showEduTypeForAddYear(ctx: any) {
-    this.setUserState(ctx, { mode: 'addYearEduType' })
-    await ctx.reply('اختر نوع التعليم للسنة الجديدة:', this.eduTypeKeyboard())
-  }
-
-  // ─── Admin: Years for add term ─────────────────────────────────────────────
+  // ─── Admin: Years for add term ──────────────────────────────────────────────
   private async showYearsForAddTerm(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
-      if (years.length === 0) {
-        await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard())
-        return
-      }
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addTermYear' })
       await ctx.reply('اختر السنة لإضافة فصل:', this.yearsKeyboard(years))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Admin: Years for add course ──────────────────────────────────────────
+  // ─── Admin: Years/Terms for add course ─────────────────────────────────────
   private async showYearsForAddCourse(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
-      if (years.length === 0) {
-        await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard())
-        return
-      }
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addCourseYear' })
       await ctx.reply('اختر السنة لإضافة مادة:', this.yearsKeyboard(years))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
   private async showTermsForAddCourse(ctx: any, yearId: number) {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
-      if (terms.length === 0) {
-        await ctx.reply('لا توجد فصول في هذه السنة. أضف فصل أولا.', this.adminKeyboard())
-        return
-      }
+      if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addCourseTerm', yearId })
       await ctx.reply('اختر الفصل لإضافة مادة:', this.termsKeyboard(terms))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Admin: Years/Terms/Courses for add file ──────────────────────────────
+  // ─── Admin: Years/Terms/Courses/EduType/FileType for add file ──────────────
   private async showYearsForAddFile(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
-      if (years.length === 0) {
-        await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard())
-        return
-      }
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileYear' })
       await ctx.reply('اختر السنة لإضافة ملف:', this.yearsKeyboard(years))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
   private async showTermsForAddFile(ctx: any, yearId: number) {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
-      if (terms.length === 0) {
-        await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard())
-        return
-      }
+      if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileTerm', yearId })
       await ctx.reply('اختر الفصل لإضافة ملف:', this.termsKeyboard(terms))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
   private async showCoursesForAddFile(ctx: any, yearId: number, termId: number) {
     try {
       const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
-      if (courses.length === 0) {
-        await ctx.reply('لا توجد مواد في هذا الفصل. أضف مادة أولا.', this.adminKeyboard())
-        return
-      }
+      if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل. أضف مادة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileCourse', yearId, termId })
       await ctx.reply('اختر المادة لإضافة ملف:', this.coursesKeyboard(courses))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  private async showFileTypeForAddFile(ctx: any, yearId: number, termId: number, courseId: number) {
-    this.setUserState(ctx, { mode: 'addFileType', yearId, termId, courseId })
-    await ctx.reply('اختر نوع الملف:', this.fileTypeKeyboard())
+  private async showEduTypeForAddFile(ctx: any, yearId: number, termId: number, courseId: number) {
+    this.setUserState(ctx, { mode: 'addFileEduType', yearId, termId, courseId })
+    await ctx.reply('اختر نوع التعليم للملف:', this.eduTypeKeyboard())
   }
 
-  // ─── Admin: Years/Terms/Courses/Files for delete ──────────────────────────
+  private async showFileTypeForAddFile(
+    ctx: any,
+    yearId: number,
+    termId: number,
+    courseId: number,
+    eduType: EducationType,
+  ) {
+    this.setUserState(ctx, { mode: 'addFileType', yearId, termId, courseId, eduType })
+    await ctx.reply(`نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nاختر نوع الملف:`, this.fileTypeKeyboard())
+  }
+
+  // ─── Admin: Years/Terms/Courses/Files for delete ────────────────────────────
   private async showYearsForDeleteFile(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
-      if (years.length === 0) {
-        await ctx.reply('لا توجد سنوات حاليا.', this.adminKeyboard())
-        return
-      }
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات حاليا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileYear' })
       await ctx.reply('اختر السنة لحذف ملف:', this.yearsKeyboard(years))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
   private async showTermsForDeleteFile(ctx: any, yearId: number) {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
-      if (terms.length === 0) {
-        await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard())
-        return
-      }
+      if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileTerm', yearId })
       await ctx.reply('اختر الفصل لحذف ملف:', this.termsKeyboard(terms))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
   private async showCoursesForDeleteFile(ctx: any, yearId: number, termId: number) {
     try {
       const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
-      if (courses.length === 0) {
-        await ctx.reply('لا توجد مواد في هذا الفصل.', this.adminKeyboard())
-        return
-      }
+      if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileCourse', yearId, termId })
       await ctx.reply('اختر المادة لحذف ملف منها:', this.coursesKeyboard(courses))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  private async showFilesForDeleteFile(
-    ctx: any,
-    yearId: number,
-    termId: number,
-    courseId: number,
-  ) {
+  private async showFilesForDeleteFile(ctx: any, yearId: number, termId: number, courseId: number) {
     try {
       const course = await this.prisma.course.findUnique({
         where: { id: courseId },
         include: { files: { orderBy: { id: 'desc' } } },
       })
-
-      if (!course || course.termId !== termId) {
-        await this.showCoursesForDeleteFile(ctx, yearId, termId)
-        return
-      }
-
+      if (!course || course.termId !== termId) { await this.showCoursesForDeleteFile(ctx, yearId, termId); return }
       if (course.files.length === 0) {
         await ctx.reply('لا توجد ملفات لهذه المادة.', this.adminKeyboard())
         await this.showCoursesForDeleteFile(ctx, yearId, termId)
         return
       }
-
       this.setUserState(ctx, { mode: 'deleteFileFile', yearId, termId, courseId })
       await ctx.reply('اختر الملف المراد حذفه:', this.filesKeyboard(course.files))
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Admin: List admins ────────────────────────────────────────────────────
+  // ─── Admin: List admins ─────────────────────────────────────────────────────
   private async listAdmins(ctx: any) {
     try {
       const admins = await this.prisma.admin.findMany({ orderBy: { id: 'asc' } })
-      if (admins.length === 0) {
-        await ctx.reply('لا يوجد أدمن في النظام.', this.adminKeyboard())
-        return
-      }
+      if (admins.length === 0) { await ctx.reply('لا يوجد أدمن في النظام.', this.adminKeyboard()); return }
       const list = admins.map(a => `• ${a.id.toString()}`).join('\n')
       await ctx.reply(`قائمة الأدمن:\n${list}`, this.adminKeyboard())
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('حدث خطأ في جلب قائمة الأدمن.', this.adminKeyboard())
-    }
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Text handler ──────────────────────────────────────────────────────────
+  // ─── Text handler ───────────────────────────────────────────────────────────
   private async handleTextInput(ctx: any) {
     const text = ctx.message?.text?.trim()
     const userId = ctx.from?.id
     if (!text) return
 
-    // Global buttons
-    if (text === BUTTONS.mainMenu) {
-      this.clearUserState(ctx)
-      await this.showMainMenu(ctx)
-      return
-    }
-    if (text === BUTTONS.cancel) {
-      this.clearUserState(ctx)
-      await this.showMainMenu(ctx, 'تم الإلغاء.')
-      return
-    }
+    if (text === BUTTONS.mainMenu) { this.clearUserState(ctx); await this.showMainMenu(ctx); return }
+    if (text === BUTTONS.cancel) { this.clearUserState(ctx); await this.showMainMenu(ctx, 'تم الإلغاء.'); return }
 
     const state = this.getUserState(ctx)
 
-    // ── Idle ──
-    if (state.mode === 'idle') {
-      await this.handleMainMenuButtons(ctx, text)
-      return
-    }
-
-    // ── Admin panel ──
-    if (state.mode === 'adminPanel') {
-      await this.handleAdminPanelButtons(ctx, text)
-      return
-    }
-
-    // ── Browse: edu type ──
-    if (state.mode === 'browseEduType') {
-      if (text === BUTTONS.back) { await this.showMainMenu(ctx); return }
-      if (text === BUTTONS.generalEdu) { await this.showYearsForBrowse(ctx, 'GENERAL'); return }
-      if (text === BUTTONS.openEdu) { await this.showYearsForBrowse(ctx, 'OPEN'); return }
-      await ctx.reply('اختر نوع التعليم من الأزرار.')
-      return
-    }
+    if (state.mode === 'idle') { await this.handleMainMenuButtons(ctx, text); return }
+    if (state.mode === 'adminPanel') { await this.handleAdminPanelButtons(ctx, text); return }
 
     // ── Browse: year ──
     if (state.mode === 'browseYear') {
-      if (text === BUTTONS.back) { await this.showEduTypeSelection(ctx); return }
+      if (text === BUTTONS.back) { await this.showMainMenu(ctx); return }
       const yearId = this.parseYearId(text)
       if (!yearId) { await ctx.reply('اختر سنة من الأزرار.'); return }
-      await this.showTermsForBrowse(ctx, state.eduType, yearId)
+      await this.showTermsForBrowse(ctx, yearId)
       return
     }
 
     // ── Browse: term ──
     if (state.mode === 'browseTerm') {
-      if (text === BUTTONS.back) { await this.showYearsForBrowse(ctx, state.eduType); return }
+      if (text === BUTTONS.back) { await this.showYearsForBrowse(ctx); return }
       const termId = this.parseTermId(text)
       if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
-      await this.showCoursesForBrowse(ctx, state.eduType, state.yearId, termId)
+      await this.showCoursesForBrowse(ctx, state.yearId, termId)
       return
     }
 
     // ── Browse: course ──
     if (state.mode === 'browseCourse') {
-      if (text === BUTTONS.back) { await this.showTermsForBrowse(ctx, state.eduType, state.yearId); return }
+      if (text === BUTTONS.back) { await this.showTermsForBrowse(ctx, state.yearId); return }
       const courseId = this.parseCourseId(text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
-      await this.showFileTypeSelection(ctx, state.eduType, state.yearId, state.termId, courseId)
+      await this.showEduTypeForBrowse(ctx, state.yearId, state.termId, courseId)
+      return
+    }
+
+    // ── Browse: edu type ──
+    if (state.mode === 'browseEduType') {
+      if (text === BUTTONS.back) { await this.showCoursesForBrowse(ctx, state.yearId, state.termId); return }
+      const eduType = EDU_TYPE_BUTTONS[text]
+      if (!eduType) { await ctx.reply('اختر نوع التعليم من الأزرار.'); return }
+      await this.showFileTypeForBrowse(ctx, state.yearId, state.termId, state.courseId, eduType)
       return
     }
 
     // ── Browse: file type ──
     if (state.mode === 'browseFileType') {
       if (text === BUTTONS.back) {
-        await this.showCoursesForBrowse(ctx, state.eduType, state.yearId, state.termId)
+        await this.showEduTypeForBrowse(ctx, state.yearId, state.termId, state.courseId)
         return
       }
       const fileType = FILE_TYPE_BUTTONS[text]
       if (!fileType) { await ctx.reply('اختر نوع الملف من الأزرار.'); return }
-      await this.showFilesForBrowse(ctx, state.eduType, state.yearId, state.termId, state.courseId, fileType)
+      await this.showFilesForBrowse(ctx, state.yearId, state.termId, state.courseId, state.eduType, fileType)
       return
     }
 
-    // ── Admin-only states ──
+    // ── Admin-only ──
     if (!(await this.ensureAdminAccess(ctx, userId))) return
-
-    // ── Add year: edu type ──
-    if (state.mode === 'addYearEduType') {
-      if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
-      if (text === BUTTONS.generalEdu) {
-        this.setUserState(ctx, { mode: 'addYearName', eduType: 'GENERAL' })
-        await ctx.reply('أرسل اسم السنة الجديدة (تعليم عام):', this.cancelKeyboard())
-        return
-      }
-      if (text === BUTTONS.openEdu) {
-        this.setUserState(ctx, { mode: 'addYearName', eduType: 'OPEN' })
-        await ctx.reply('أرسل اسم السنة الجديدة (تعليم مفتوح):', this.cancelKeyboard())
-        return
-      }
-      await ctx.reply('اختر نوع التعليم من الأزرار.')
-      return
-    }
 
     // ── Add year: name ──
     if (state.mode === 'addYearName') {
-      if (text === BUTTONS.back) { await this.showEduTypeForAddYear(ctx); return }
-      await this.createYear(ctx, text, state.eduType)
+      if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
+      await this.createYear(ctx, text)
       return
     }
 
@@ -702,14 +577,23 @@ export class BotService implements OnModuleInit {
       if (text === BUTTONS.back) { await this.showTermsForAddFile(ctx, state.yearId); return }
       const courseId = this.parseCourseId(text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
-      await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, courseId)
+      await this.showEduTypeForAddFile(ctx, state.yearId, state.termId, courseId)
       return
     }
 
-    // ── Add file: type ──
+    // ── Add file: edu type ──
+    if (state.mode === 'addFileEduType') {
+      if (text === BUTTONS.back) { await this.showCoursesForAddFile(ctx, state.yearId, state.termId); return }
+      const eduType = EDU_TYPE_BUTTONS[text]
+      if (!eduType) { await ctx.reply('اختر نوع التعليم من الأزرار.'); return }
+      await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId, eduType)
+      return
+    }
+
+    // ── Add file: file type ──
     if (state.mode === 'addFileType') {
       if (text === BUTTONS.back) {
-        await this.showCoursesForAddFile(ctx, state.yearId, state.termId)
+        await this.showEduTypeForAddFile(ctx, state.yearId, state.termId, state.courseId)
         return
       }
       const fileType = FILE_TYPE_BUTTONS[text]
@@ -719,10 +603,11 @@ export class BotService implements OnModuleInit {
         yearId: state.yearId,
         termId: state.termId,
         courseId: state.courseId,
+        eduType: state.eduType,
         fileType,
       })
       await ctx.reply(
-        `نوع الملف: ${FILE_TYPE_LABELS[fileType]}\nأرسل الملف (Document) أو أرسل file_id كنص:`,
+        `نوع التعليم: ${EDU_TYPE_LABELS[state.eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}\nأرسل الملف (Document) أو أرسل file_id كنص:`,
         this.cancelKeyboard(),
       )
       return
@@ -731,10 +616,10 @@ export class BotService implements OnModuleInit {
     // ── Add file: upload (text = file_id) ──
     if (state.mode === 'addFileUpload') {
       if (text === BUTTONS.back) {
-        await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId)
+        await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId, state.eduType)
         return
       }
-      await this.createCourseFile(ctx, state.courseId, state.termId, text, undefined, state.fileType)
+      await this.createCourseFile(ctx, state.courseId, state.termId, text, undefined, state.eduType, state.fileType)
       return
     }
 
@@ -767,10 +652,7 @@ export class BotService implements OnModuleInit {
 
     // ── Delete file: file ──
     if (state.mode === 'deleteFileFile') {
-      if (text === BUTTONS.back) {
-        await this.showCoursesForDeleteFile(ctx, state.yearId, state.termId)
-        return
-      }
+      if (text === BUTTONS.back) { await this.showCoursesForDeleteFile(ctx, state.yearId, state.termId); return }
       const fileRowId = this.parseFileRowId(text)
       if (!fileRowId) { await ctx.reply('اختر ملف من الأزرار.'); return }
       await this.deleteCourseFile(ctx, state.yearId, state.termId, state.courseId, fileRowId)
@@ -791,48 +673,36 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  // ─── Document handler ──────────────────────────────────────────────────────
+  // ─── Document handler ───────────────────────────────────────────────────────
   private async handleDocumentInput(ctx: any) {
     const userId = ctx.from?.id
     if (!(await this.ensureAdminAccess(ctx, userId))) return
-
     const state = this.getUserState(ctx)
     if (state.mode !== 'addFileUpload') return
-
     const fileId = ctx.message?.document?.file_id
-    if (!fileId) {
-      await ctx.reply('الملف غير صالح. أرسل ملف صحيح.')
-      return
-    }
-
+    if (!fileId) { await ctx.reply('الملف غير صالح.'); return }
     const fileName = ctx.message?.document?.file_name ?? undefined
-    await this.createCourseFile(ctx, state.courseId, state.termId, fileId, fileName, state.fileType)
+    await this.createCourseFile(ctx, state.courseId, state.termId, fileId, fileName, state.eduType, state.fileType)
   }
 
-  // ─── Main menu buttons ─────────────────────────────────────────────────────
+  // ─── Main menu buttons ──────────────────────────────────────────────────────
   private async handleMainMenuButtons(ctx: any, text: string) {
-    if (text === BUTTONS.browse) {
-      await this.showEduTypeSelection(ctx)
-      return
-    }
-    if (text === BUTTONS.channelLink) {
-      await ctx.reply(`📢 رابط القناة الرئيسية:\n${CHANNEL_URL}`)
-      return
-    }
-    if (text === BUTTONS.admin) {
-      await this.showAdminPanel(ctx)
-      return
-    }
+    if (text === BUTTONS.browse) { await this.showYearsForBrowse(ctx); return }
+    if (text === BUTTONS.channelLink) { await ctx.reply(`📢 رابط القناة الرئيسية:\n${CHANNEL_URL}`); return }
+    if (text === BUTTONS.admin) { await this.showAdminPanel(ctx); return }
     await this.showMainMenu(ctx, 'اختر خيارا من الأزرار.')
   }
 
-  // ─── Admin panel buttons ───────────────────────────────────────────────────
+  // ─── Admin panel buttons ────────────────────────────────────────────────────
   private async handleAdminPanelButtons(ctx: any, text: string) {
     const userId = ctx.from?.id
     if (!(await this.ensureAdminAccess(ctx, userId))) return
-
     if (text === BUTTONS.back) { await this.showMainMenu(ctx); return }
-    if (text === BUTTONS.addYear) { await this.showEduTypeForAddYear(ctx); return }
+    if (text === BUTTONS.addYear) {
+      this.setUserState(ctx, { mode: 'addYearName' })
+      await ctx.reply('أرسل اسم السنة الجديدة:', this.cancelKeyboard())
+      return
+    }
     if (text === BUTTONS.addTerm) { await this.showYearsForAddTerm(ctx); return }
     if (text === BUTTONS.addCourse) { await this.showYearsForAddCourse(ctx); return }
     if (text === BUTTONS.addFile) { await this.showYearsForAddFile(ctx); return }
@@ -848,37 +718,31 @@ export class BotService implements OnModuleInit {
       await ctx.reply('أرسل ID الأدمن المراد حذفه:', this.cancelKeyboard())
       return
     }
-
     await this.showAdminPanel(ctx)
   }
 
-  // ─── CRUD helpers ──────────────────────────────────────────────────────────
+  // ─── CRUD ───────────────────────────────────────────────────────────────────
   private parseBigIntValue(value: string): bigint | null {
     try {
       if (!/^\d+$/.test(value)) return null
       return BigInt(value)
-    } catch {
-      return null
-    }
+    } catch { return null }
   }
 
   private async addAdmin(ctx: any, adminIdText: string) {
     const adminId = this.parseBigIntValue(adminIdText)
-    if (adminId === null) { await ctx.reply('ID غير صحيح. أرسل رقم صحيح.'); return }
+    if (adminId === null) { await ctx.reply('ID غير صحيح.'); return }
     try {
       await this.prisma.admin.create({ data: { id: adminId } })
       this.clearUserState(ctx)
       await ctx.reply(`تمت إضافة الأدمن: ${adminId.toString()}`)
       await this.showAdminPanel(ctx)
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('فشل إضافة الأدمن. قد يكون موجود بالفعل.')
-    }
+    } catch (error) { console.error(error); await ctx.reply('فشل إضافة الأدمن. قد يكون موجود بالفعل.') }
   }
 
   private async removeAdmin(ctx: any, adminIdText: string) {
     const adminId = this.parseBigIntValue(adminIdText)
-    if (adminId === null) { await ctx.reply('ID غير صحيح. أرسل رقم صحيح.'); return }
+    if (adminId === null) { await ctx.reply('ID غير صحيح.'); return }
     const userId = ctx.from?.id
     if (userId && adminId === BigInt(userId)) { await ctx.reply('لا يمكنك حذف نفسك!'); return }
     try {
@@ -886,63 +750,38 @@ export class BotService implements OnModuleInit {
       this.clearUserState(ctx)
       await ctx.reply(`تم حذف الأدمن: ${adminId.toString()}`)
       await this.showAdminPanel(ctx)
-    } catch (error) {
-      console.error(error)
-      await ctx.reply('فشل حذف الأدمن. قد يكون غير موجود.')
-    }
+    } catch (error) { console.error(error); await ctx.reply('فشل حذف الأدمن. قد يكون غير موجود.') }
   }
 
-  private async createYear(ctx: any, name: string, eduType: EducationType) {
+  private async createYear(ctx: any, name: string) {
     try {
-      const created = await this.prisma.year.create({
-        data: { name, educationType: eduType },
-      })
+      const created = await this.prisma.year.create({ data: { name } })
       this.clearUserState(ctx)
-      await ctx.reply(
-        `تمت إضافة السنة: ${name} (ID: ${created.id}) - ${EDU_TYPE_LABELS[eduType]}`,
-      )
+      await ctx.reply(`تمت إضافة السنة: ${name} (ID: ${created.id})`)
       await this.showAdminPanel(ctx)
-    } catch (error: any) {
-      console.error(error)
-      await ctx.reply(`فشل إضافة السنة. الخطأ: ${error.message || 'غير معروف'}`)
-    }
+    } catch (error: any) { console.error(error); await ctx.reply(`فشل إضافة السنة. الخطأ: ${error.message || 'غير معروف'}`) }
   }
 
   private async createTerm(ctx: any, yearId: number, name: string) {
     try {
       const year = await this.prisma.year.findUnique({ where: { id: yearId } })
-      if (!year) {
-        await ctx.reply('السنة غير موجودة.')
-        await this.showYearsForAddTerm(ctx)
-        return
-      }
+      if (!year) { await ctx.reply('السنة غير موجودة.'); await this.showYearsForAddTerm(ctx); return }
       const created = await this.prisma.term.create({ data: { name, yearId } })
       this.clearUserState(ctx)
       await ctx.reply(`تمت إضافة الفصل: ${name} (ID: ${created.id}) للسنة: ${year.name}`)
       await this.showAdminPanel(ctx)
-    } catch (error: any) {
-      console.error(error)
-      await ctx.reply(`فشل إضافة الفصل. الخطأ: ${error.message || 'قد يكون مكرر'}`)
-    }
+    } catch (error: any) { console.error(error); await ctx.reply(`فشل إضافة الفصل. الخطأ: ${error.message || 'قد يكون مكرر'}`) }
   }
 
   private async createCourse(ctx: any, termId: number, name: string) {
     try {
-      const term = await this.prisma.term.findUnique({
-        where: { id: termId },
-        include: { year: true },
-      })
+      const term = await this.prisma.term.findUnique({ where: { id: termId }, include: { year: true } })
       if (!term) { await ctx.reply('الفصل غير موجود.'); return }
       const created = await this.prisma.course.create({ data: { name, termId } })
       this.clearUserState(ctx)
-      await ctx.reply(
-        `تمت إضافة المادة: ${name} (ID: ${created.id}) للفصل: ${term.name} - السنة: ${term.year.name}`,
-      )
+      await ctx.reply(`تمت إضافة المادة: ${name} (ID: ${created.id}) للفصل: ${term.name} - السنة: ${term.year.name}`)
       await this.showAdminPanel(ctx)
-    } catch (error: any) {
-      console.error(error)
-      await ctx.reply(`فشل إضافة المادة. الخطأ: ${error.message || 'غير معروف'}`)
-    }
+    } catch (error: any) { console.error(error); await ctx.reply(`فشل إضافة المادة. الخطأ: ${error.message || 'غير معروف'}`) }
   }
 
   private async createCourseFile(
@@ -951,6 +790,7 @@ export class BotService implements OnModuleInit {
     termId: number,
     fileId: string,
     name?: string,
+    eduType: EducationType = 'GENERAL',
     fileType: FileType = 'SUMMARY',
   ) {
     try {
@@ -960,22 +800,14 @@ export class BotService implements OnModuleInit {
       })
       if (!course || course.termId !== termId) { await ctx.reply('المادة غير موجودة.'); return }
       const created = await this.prisma.courseFile.create({
-        data: {
-          courseId,
-          fileId,
-          name: name?.trim() || undefined,
-          fileType,
-        },
+        data: { courseId, fileId, name: name?.trim() || undefined, educationType: eduType, fileType },
       })
       this.clearUserState(ctx)
       await ctx.reply(
-        `تمت إضافة ملف جديد (ID: ${created.id})\nالنوع: ${FILE_TYPE_LABELS[fileType]}\nالمادة: ${course.name}`,
+        `تمت إضافة ملف جديد (ID: ${created.id})\nالمادة: ${course.name}\nنوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}`,
       )
       await this.showAdminPanel(ctx)
-    } catch (error: any) {
-      console.error(error)
-      await ctx.reply(`فشل إضافة الملف. الخطأ: ${error.message || 'غير معروف'}`)
-    }
+    } catch (error: any) { console.error(error); await ctx.reply(`فشل إضافة الملف. الخطأ: ${error.message || 'غير معروف'}`) }
   }
 
   private async deleteCourseFile(
@@ -990,20 +822,14 @@ export class BotService implements OnModuleInit {
         where: { id: fileRowId },
         select: { id: true, courseId: true, name: true },
       })
-      if (!file || file.courseId !== courseId) {
-        await ctx.reply('الملف غير موجود في هذه المادة.')
-        return
-      }
+      if (!file || file.courseId !== courseId) { await ctx.reply('الملف غير موجود في هذه المادة.'); return }
       await this.prisma.courseFile.delete({ where: { id: fileRowId } })
       await ctx.reply(`تم حذف الملف: ${file.name ?? `#${file.id}`}`)
       await this.showFilesForDeleteFile(ctx, yearId, termId, courseId)
-    } catch (error: any) {
-      console.error(error)
-      await ctx.reply(`فشل حذف الملف. الخطأ: ${error.message || 'غير معروف'}`)
-    }
+    } catch (error: any) { console.error(error); await ctx.reply(`فشل حذف الملف. الخطأ: ${error.message || 'غير معروف'}`) }
   }
 
-  // ─── Keyboards ─────────────────────────────────────────────────────────────
+  // ─── Keyboards ──────────────────────────────────────────────────────────────
   private mainKeyboard(isAdmin: boolean) {
     const buttons: any[][] = [
       [Markup.button.text(BUTTONS.browse)],
@@ -1049,7 +875,7 @@ export class BotService implements OnModuleInit {
     ]).resize()
   }
 
-  private yearsKeyboard(years: Array<{ id: number; name: string; educationType?: string }>) {
+  private yearsKeyboard(years: Array<{ id: number; name: string }>) {
     const rows = years.map(y => [Markup.button.text(this.yearLabel(y.id, y.name))])
     rows.push([Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)])
     return Markup.keyboard(rows).resize()
@@ -1067,66 +893,55 @@ export class BotService implements OnModuleInit {
     return Markup.keyboard(rows).resize()
   }
 
-  private filesKeyboard(files: Array<{ id: number; name: string | null; fileType?: string }>) {
+  private filesKeyboard(files: Array<{ id: number; name: string | null; fileType?: string; educationType?: string }>) {
     const rows = files.map(f => [
-      Markup.button.text(this.fileLabel(f.id, f.name, f.fileType as FileType | undefined)),
+      Markup.button.text(this.fileLabel(f.id, f.name, f.fileType as FileType | undefined, f.educationType as EducationType | undefined)),
     ])
     rows.push([Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)])
     return Markup.keyboard(rows).resize()
   }
 
-  // ─── Label helpers ─────────────────────────────────────────────────────────
-  private yearLabel(id: number, name: string) {
-    return `سنة: ${id} - ${name}`
+  // ─── Labels ─────────────────────────────────────────────────────────────────
+  private yearLabel(id: number, name: string) { return `سنة: ${id} - ${name}` }
+  private termLabel(id: number, name: string) { return `فصل: ${id} - ${name}` }
+  private courseLabel(id: number, name: string) { return `مادة: ${id} - ${name}` }
+  private fileLabel(id: number, name: string | null, fileType?: FileType, eduType?: EducationType) {
+    const parts: string[] = []
+    if (eduType) parts.push(EDU_TYPE_LABELS[eduType])
+    if (fileType) parts.push(FILE_TYPE_LABELS[fileType])
+    const suffix = parts.length ? ` [${parts.join(' - ')}]` : ''
+    return `ملف: ${id} - ${name ?? `ملف ${id}`}${suffix}`
   }
 
-  private termLabel(id: number, name: string) {
-    return `فصل: ${id} - ${name}`
-  }
-
-  private courseLabel(id: number, name: string) {
-    return `مادة: ${id} - ${name}`
-  }
-
-  private fileLabel(id: number, name: string | null, fileType?: FileType) {
-    const typePart = fileType ? ` [${FILE_TYPE_LABELS[fileType]}]` : ''
-    return `ملف: ${id} - ${name ?? `ملف ${id}`}${typePart}`
-  }
-
-  // ─── Parse helpers ─────────────────────────────────────────────────────────
+  // ─── Parsers ────────────────────────────────────────────────────────────────
   private parseYearId(text: string): number | null {
     const match = text.match(/^سنة:\s*(\d+)\s*-/)
     return match ? Number(match[1]) : null
   }
-
   private parseTermId(text: string): number | null {
     const match = text.match(/^فصل:\s*(\d+)\s*-/)
     return match ? Number(match[1]) : null
   }
-
   private parseCourseId(text: string): number | null {
     const match = text.match(/^مادة:\s*(\d+)\s*-/)
     return match ? Number(match[1]) : null
   }
-
   private parseFileRowId(text: string): number | null {
     const match = text.match(/^ملف:\s*(\d+)\s*-/)
     return match ? Number(match[1]) : null
   }
 
-  // ─── State helpers ─────────────────────────────────────────────────────────
+  // ─── State ──────────────────────────────────────────────────────────────────
   private getUserState(ctx: any): UserState {
     const userId = ctx.from?.id
     if (!userId) return { mode: 'idle' }
     return this.userStates.get(userId) ?? { mode: 'idle' }
   }
-
   private setUserState(ctx: any, state: UserState) {
     const userId = ctx.from?.id
     if (!userId) return
     this.userStates.set(userId, state)
   }
-
   private clearUserState(ctx: any) {
     const userId = ctx.from?.id
     if (!userId) return
