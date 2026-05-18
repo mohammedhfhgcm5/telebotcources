@@ -3,7 +3,7 @@ import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
 // ─── Channel URL ─────────────────────────────────────────────────────────────
-const CHANNEL_URL = 'https://t.me/HT3n3DPJ0iw4N2Nk'
+const CHANNEL_URL = 'https://t.me/+OsdxPe9fzUg0Y2M0'
 
 // ─── Keep-alive ───────────────────────────────────────────────────────────────
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
@@ -42,6 +42,12 @@ const BUTTONS = {
 // ─── Types ────────────────────────────────────────────────────────────────────
 type EducationType = 'GENERAL' | 'OPEN'
 type FileType = 'SUMMARY' | 'BANK' | 'GOLDEN' | 'COURSES' | 'RECORDINGS'
+
+/**
+ * Telegram media category – stored alongside fileId so we know
+ * which reply method to use when sending the file back.
+ */
+type MediaKind = 'document' | 'audio' | 'voice'
 
 const EDU_TYPE_LABELS: Record<EducationType, string> = {
   GENERAL: 'تعليم عام',
@@ -128,8 +134,17 @@ export class BotService implements OnModuleInit {
       await this.handleTextInput(ctx)
     })
 
+    // ── Media handlers ──────────────────────────────────────────────────────
     this.bot.on('document', async ctx => {
-      await this.handleDocumentInput(ctx)
+      await this.handleMediaInput(ctx, 'document')
+    })
+
+    this.bot.on('audio', async ctx => {
+      await this.handleMediaInput(ctx, 'audio')
+    })
+
+    this.bot.on('voice', async ctx => {
+      await this.handleMediaInput(ctx, 'voice')
     })
 
     const appUrl = process.env.APP_URL
@@ -240,7 +255,7 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  // ─── Browse: Edu type (after course) ───────────────────────────────────────
+  // ─── Browse: Edu type ───────────────────────────────────────────────────────
   private async showEduTypeForBrowse(ctx: any, yearId: number, termId: number, courseId: number) {
     this.setUserState(ctx, { mode: 'browseEduType', yearId, termId, courseId })
     await ctx.reply('اختر نوع التعليم:', this.eduTypeKeyboard())
@@ -296,9 +311,7 @@ export class BotService implements OnModuleInit {
 
       for (const file of course.files) {
         try {
-          await ctx.replyWithDocument(file.fileId, {
-            caption: file.name ?? `${course.name} - ${FILE_TYPE_LABELS[fileType]}`,
-          })
+          await this.sendFile(ctx, file)
         } catch {
           await ctx.reply(`تعذر إرسال الملف: ${file.name ?? `#${file.id}`}`)
         }
@@ -308,6 +321,26 @@ export class BotService implements OnModuleInit {
     } catch (error) {
       console.error(error)
       await ctx.reply('حدث خطأ في جلب الملفات.')
+    }
+  }
+
+  /**
+   * Send a stored file using the correct Telegram method based on mediaKind.
+   * Falls back to replyWithDocument if mediaKind is missing (old records).
+   */
+  private async sendFile(
+    ctx: any,
+    file: { id: number; fileId: string; name: string | null; mediaKind?: string | null },
+  ) {
+    const caption = file.name ?? undefined
+    const kind = (file.mediaKind ?? 'document') as MediaKind
+
+    if (kind === 'audio') {
+      await ctx.replyWithAudio(file.fileId, { caption })
+    } else if (kind === 'voice') {
+      await ctx.replyWithVoice(file.fileId, { caption })
+    } else {
+      await ctx.replyWithDocument(file.fileId, { caption })
     }
   }
 
@@ -340,7 +373,7 @@ export class BotService implements OnModuleInit {
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Admin: Years/Terms/Courses/EduType/FileType for add file ──────────────
+  // ─── Admin: add file – navigation ──────────────────────────────────────────
   private async showYearsForAddFile(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
@@ -384,7 +417,7 @@ export class BotService implements OnModuleInit {
     await ctx.reply(`نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nاختر نوع الملف:`, this.fileTypeKeyboard())
   }
 
-  // ─── Admin: Years/Terms/Courses/Files for delete ────────────────────────────
+  // ─── Admin: delete file – navigation ───────────────────────────────────────
   private async showYearsForDeleteFile(ctx: any) {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { name: 'asc' } })
@@ -429,7 +462,7 @@ export class BotService implements OnModuleInit {
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  // ─── Admin: List admins ─────────────────────────────────────────────────────
+  // ─── Admin: list admins ─────────────────────────────────────────────────────
   private async listAdmins(ctx: any) {
     try {
       const admins = await this.prisma.admin.findMany({ orderBy: { id: 'asc' } })
@@ -501,7 +534,7 @@ export class BotService implements OnModuleInit {
       return
     }
 
-    // ── Admin-only ──
+    // ── Admin-only from here ──
     if (!(await this.ensureAdminAccess(ctx, userId))) return
 
     // ── Add year: name ──
@@ -607,7 +640,7 @@ export class BotService implements OnModuleInit {
         fileType,
       })
       await ctx.reply(
-        `نوع التعليم: ${EDU_TYPE_LABELS[state.eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}\nأرسل الملف (Document) أو أرسل file_id كنص:`,
+        `نوع التعليم: ${EDU_TYPE_LABELS[state.eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}\n\nأرسل الملف (document / audio / voice) أو أرسل file_id كنص:`,
         this.cancelKeyboard(),
       )
       return
@@ -619,7 +652,17 @@ export class BotService implements OnModuleInit {
         await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId, state.eduType)
         return
       }
-      await this.createCourseFile(ctx, state.courseId, state.termId, text, undefined, state.eduType, state.fileType)
+      // Treat plain text as a raw file_id (document fallback)
+      await this.createCourseFile(
+        ctx,
+        state.courseId,
+        state.termId,
+        text,
+        undefined,
+        state.eduType,
+        state.fileType,
+        'document',
+      )
       return
     }
 
@@ -673,16 +716,40 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  // ─── Document handler ───────────────────────────────────────────────────────
-  private async handleDocumentInput(ctx: any) {
+  // ─── Unified media handler (document / audio / voice) ──────────────────────
+  private async handleMediaInput(ctx: any, kind: MediaKind) {
     const userId = ctx.from?.id
     if (!(await this.ensureAdminAccess(ctx, userId))) return
+
     const state = this.getUserState(ctx)
     if (state.mode !== 'addFileUpload') return
-    const fileId = ctx.message?.document?.file_id
+
+    let fileId: string | undefined
+    let fileName: string | undefined
+
+    if (kind === 'document') {
+      fileId = ctx.message?.document?.file_id
+      fileName = ctx.message?.document?.file_name ?? undefined
+    } else if (kind === 'audio') {
+      fileId = ctx.message?.audio?.file_id
+      fileName = ctx.message?.audio?.file_name ?? ctx.message?.audio?.title ?? undefined
+    } else if (kind === 'voice') {
+      fileId = ctx.message?.voice?.file_id
+      // Voice messages have no filename; leave undefined
+    }
+
     if (!fileId) { await ctx.reply('الملف غير صالح.'); return }
-    const fileName = ctx.message?.document?.file_name ?? undefined
-    await this.createCourseFile(ctx, state.courseId, state.termId, fileId, fileName, state.eduType, state.fileType)
+
+    await this.createCourseFile(
+      ctx,
+      state.courseId,
+      state.termId,
+      fileId,
+      fileName,
+      state.eduType,
+      state.fileType,
+      kind,
+    )
   }
 
   // ─── Main menu buttons ──────────────────────────────────────────────────────
@@ -792,6 +859,7 @@ export class BotService implements OnModuleInit {
     name?: string,
     eduType: EducationType = 'GENERAL',
     fileType: FileType = 'SUMMARY',
+    mediaKind: MediaKind = 'document',
   ) {
     try {
       const course = await this.prisma.course.findUnique({
@@ -799,12 +867,31 @@ export class BotService implements OnModuleInit {
         select: { id: true, termId: true, name: true },
       })
       if (!course || course.termId !== termId) { await ctx.reply('المادة غير موجودة.'); return }
+
       const created = await this.prisma.courseFile.create({
-        data: { courseId, fileId, name: name?.trim() || undefined, educationType: eduType, fileType },
+        data: {
+          courseId,
+          fileId,
+          name: name?.trim() || undefined,
+          educationType: eduType,
+          fileType,
+          mediaKind,           // ← new field
+        },
       })
+
+      const kindLabel: Record<MediaKind, string> = {
+        document: '📄 مستند',
+        audio: '🎵 صوت',
+        voice: '🎙️ رسالة صوتية',
+      }
+
       this.clearUserState(ctx)
       await ctx.reply(
-        `تمت إضافة ملف جديد (ID: ${created.id})\nالمادة: ${course.name}\nنوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}`,
+        `تمت إضافة ملف جديد (ID: ${created.id})\n` +
+        `المادة: ${course.name}\n` +
+        `نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\n` +
+        `نوع الملف: ${FILE_TYPE_LABELS[fileType]}\n` +
+        `نوع الوسائط: ${kindLabel[mediaKind]}`,
       )
       await this.showAdminPanel(ctx)
     } catch (error: any) { console.error(error); await ctx.reply(`فشل إضافة الملف. الخطأ: ${error.message || 'غير معروف'}`) }

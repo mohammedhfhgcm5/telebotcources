@@ -61,6 +61,12 @@ model CourseFile {
   name          String?
   fileType      FileType      @default(SUMMARY)
   educationType EducationType @default(GENERAL)
+
+  /// How the file should be sent back to Telegram users.
+  /// Values: "document" | "audio" | "voice"
+  /// Defaults to "document" so existing rows keep working without migration changes.
+  mediaKind     String        @default("document")
+
   courseId      Int
   createdAt     DateTime      @default(now())
 
