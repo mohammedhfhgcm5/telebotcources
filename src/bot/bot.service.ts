@@ -5,7 +5,6 @@ import { PrismaService } from '../prisma/prisma.service'
 const CHANNEL_URL = 'https://t.me/+OsdxPe9fzUg0Y2M0'
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
-
   const message = `
 👋 أهلاً بك في بوت الملفات
 
@@ -20,8 +19,7 @@ ${CHANNEL_URL}
 @your_username
 
 اختر العملية
-`;
-
+`;  
 
 const BUTTONS = {
   browse: '📚 تصفح الملفات',
@@ -107,8 +105,8 @@ export class BotService implements OnModuleInit {
 
     this.bot.start(async ctx => {
       this.clearUserState(ctx)
-      await this.showMainMenu(ctx, message)
-    })
+     await this.showMainMenu(ctx, message)
+        })
 
     this.bot.command('menu', async ctx => {
       this.clearUserState(ctx)
@@ -231,7 +229,7 @@ export class BotService implements OnModuleInit {
   // ─── Browse: Courses ────────────────────────────────────────────────────────
   private async showCoursesForBrowse(ctx: any, yearId: number, termId: number) {
     try {
-      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
+      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
       if (courses.length === 0) {
         await this.showTermsForBrowse(ctx, yearId)
         return
@@ -322,7 +320,7 @@ export class BotService implements OnModuleInit {
   // ─── Admin: Years for add term ──────────────────────────────────────────────
   private async showYearsForAddTerm(ctx: any) {
     try {
-      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' }  })
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
       if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addTermYear' })
       await ctx.reply('اختر السنة لإضافة فصل:', this.yearsKeyboard(years))
@@ -332,7 +330,7 @@ export class BotService implements OnModuleInit {
   // ─── Admin: Years/Terms for add course ─────────────────────────────────────
   private async showYearsForAddCourse(ctx: any) {
     try {
-      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' }  })
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
       if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addCourseYear' })
       await ctx.reply('اختر السنة لإضافة مادة:', this.yearsKeyboard(years))
@@ -341,7 +339,7 @@ export class BotService implements OnModuleInit {
 
   private async showTermsForAddCourse(ctx: any, yearId: number) {
     try {
-      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addCourseTerm', yearId })
       await ctx.reply('اختر الفصل لإضافة مادة:', this.termsKeyboard(terms))
@@ -351,7 +349,7 @@ export class BotService implements OnModuleInit {
   // ─── Admin: add file – navigation ──────────────────────────────────────────
   private async showYearsForAddFile(ctx: any) {
     try {
-      const years = await this.prisma.year.findMany({  orderBy: { id: 'asc' }  })
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
       if (years.length === 0) { await ctx.reply('لا توجد سنوات. أضف سنة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileYear' })
       await ctx.reply('اختر السنة لإضافة ملف:', this.yearsKeyboard(years))
@@ -360,7 +358,7 @@ export class BotService implements OnModuleInit {
 
   private async showTermsForAddFile(ctx: any, yearId: number) {
     try {
-      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileTerm', yearId })
       await ctx.reply('اختر الفصل لإضافة ملف:', this.termsKeyboard(terms))
@@ -369,7 +367,7 @@ export class BotService implements OnModuleInit {
 
   private async showCoursesForAddFile(ctx: any, yearId: number, termId: number) {
     try {
-      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
+      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
       if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل. أضف مادة أولا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'addFileCourse', yearId, termId })
       await ctx.reply('اختر المادة لإضافة ملف:', this.coursesKeyboard(courses))
@@ -390,7 +388,7 @@ export class BotService implements OnModuleInit {
   // ─── Admin: delete file – navigation ───────────────────────────────────────
   private async showYearsForDeleteFile(ctx: any) {
     try {
-      const years = await this.prisma.year.findMany({  orderBy: { id: 'asc' }  })
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
       if (years.length === 0) { await ctx.reply('لا توجد سنوات حاليا.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileYear' })
       await ctx.reply('اختر السنة لحذف ملف:', this.yearsKeyboard(years))
@@ -399,7 +397,7 @@ export class BotService implements OnModuleInit {
 
   private async showTermsForDeleteFile(ctx: any, yearId: number) {
     try {
-      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { name: 'asc' } })
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileTerm', yearId })
       await ctx.reply('اختر الفصل لحذف ملف:', this.termsKeyboard(terms))
@@ -408,7 +406,7 @@ export class BotService implements OnModuleInit {
 
   private async showCoursesForDeleteFile(ctx: any, yearId: number, termId: number) {
     try {
-      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { name: 'asc' } })
+      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
       if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل.', this.adminKeyboard()); return }
       this.setUserState(ctx, { mode: 'deleteFileCourse', yearId, termId })
       await ctx.reply('اختر المادة لحذف ملف منها:', this.coursesKeyboard(courses))
@@ -929,12 +927,12 @@ export class BotService implements OnModuleInit {
   }
 
   // ─── Labels ─────────────────────────────────────────────────────────────────
-  private yearLabel(id: number, name: string) { return `سنة: - ${name}` }
-  private termLabel(id: number, name: string) { return `فصل: - ${name}` }
-  private courseLabel(id: number, name: string) { return `مادة: - ${name}` }
+  private yearLabel(id: number, name: string) { return `سنة: ${id} - ${name}` }
+  private termLabel(id: number, name: string) { return `فصل: ${id} - ${name}` }
+  private courseLabel(id: number, name: string) { return `مادة: ${id} - ${name}` }
   private fileLabel(id: number, name: string | null, fileType?: FileType) {
     const suffix = fileType ? ` [${FILE_TYPE_LABELS[fileType]}]` : ''
-    return `ملف: - ${name ?? `ملف $`}${suffix}`
+    return `ملف: ${id} - ${name ?? `ملف ${id}`}${suffix}`
   }
 
   // ─── Parsers ────────────────────────────────────────────────────────────────
