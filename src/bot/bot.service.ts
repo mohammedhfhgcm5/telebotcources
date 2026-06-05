@@ -14,7 +14,7 @@ const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 📁 يمكنك رفع الملفات وإدارتها بسهولة
 
 🔹 قناة التلغرام:
-https://t.me/yourchannel
+${CHANNEL_URL}
 
 🔹 الدعم الفني:
 @your_username
