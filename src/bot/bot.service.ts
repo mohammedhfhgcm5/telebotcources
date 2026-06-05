@@ -2,21 +2,13 @@ import { Injectable, OnModuleInit } from '@nestjs/common'
 import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
-// ─── Channel URL ─────────────────────────────────────────────────────────────
 const CHANNEL_URL = 'https://t.me/+OsdxPe9fzUg0Y2M0'
-
-// ─── Keep-alive ───────────────────────────────────────────────────────────────
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
-// ─── Buttons ──────────────────────────────────────────────────────────────────
 const BUTTONS = {
   browse: '📚 تصفح الملفات',
   channelLink: '📢 رابط القناة الرئيسية',
   admin: '⚙️ لوحة الإدارة',
-
-  // Education type
-  generalEdu: '🏫 تعليم عام',
-  openEdu: '🎓 تعليم مفتوح',
 
   // File types
   ftSummary: '📝 ملخص قلم حقوقي',
@@ -39,20 +31,8 @@ const BUTTONS = {
   mainMenu: '🏠 القائمة الرئيسية',
 } as const
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-type EducationType = 'GENERAL' | 'OPEN'
 type FileType = 'SUMMARY' | 'BANK' | 'GOLDEN' | 'COURSES' | 'RECORDINGS'
-
-/**
- * Telegram media category – stored alongside fileId so we know
- * which reply method to use when sending the file back.
- */
 type MediaKind = 'document' | 'audio' | 'voice'
-
-const EDU_TYPE_LABELS: Record<EducationType, string> = {
-  GENERAL: 'تعليم عام',
-  OPEN: 'تعليم مفتوح',
-}
 
 const FILE_TYPE_LABELS: Record<FileType, string> = {
   SUMMARY: 'ملخص قلم حقوقي',
@@ -60,11 +40,6 @@ const FILE_TYPE_LABELS: Record<FileType, string> = {
   GOLDEN: 'دهبية',
   COURSES: 'دورات',
   RECORDINGS: 'تسجيلات المادة',
-}
-
-const EDU_TYPE_BUTTONS: Record<string, EducationType> = {
-  [BUTTONS.generalEdu]: 'GENERAL',
-  [BUTTONS.openEdu]: 'OPEN',
 }
 
 const FILE_TYPE_BUTTONS: Record<string, FileType> = {
@@ -81,8 +56,7 @@ type UserState =
   | { mode: 'browseYear' }
   | { mode: 'browseTerm'; yearId: number }
   | { mode: 'browseCourse'; yearId: number; termId: number }
-  | { mode: 'browseEduType'; yearId: number; termId: number; courseId: number }
-  | { mode: 'browseFileType'; yearId: number; termId: number; courseId: number; eduType: EducationType }
+  | { mode: 'browseFileType'; yearId: number; termId: number; courseId: number }
   | { mode: 'adminPanel' }
   | { mode: 'addYearName' }
   | { mode: 'addTermYear' }
@@ -93,9 +67,8 @@ type UserState =
   | { mode: 'addFileYear' }
   | { mode: 'addFileTerm'; yearId: number }
   | { mode: 'addFileCourse'; yearId: number; termId: number }
-  | { mode: 'addFileEduType'; yearId: number; termId: number; courseId: number }
-  | { mode: 'addFileType'; yearId: number; termId: number; courseId: number; eduType: EducationType }
-  | { mode: 'addFileUpload'; yearId: number; termId: number; courseId: number; eduType: EducationType; fileType: FileType }
+  | { mode: 'addFileType'; yearId: number; termId: number; courseId: number }
+  | { mode: 'addFileUpload'; yearId: number; termId: number; courseId: number; fileType: FileType }
   | { mode: 'deleteFileYear' }
   | { mode: 'deleteFileTerm'; yearId: number }
   | { mode: 'deleteFileCourse'; yearId: number; termId: number }
@@ -111,7 +84,6 @@ export class BotService implements OnModuleInit {
   private readonly userStates = new Map<number, UserState>()
   private keepAliveInterval: NodeJS.Timeout | null = null
 
-  // ─── Lifecycle ──────────────────────────────────────────────────────────────
   async onModuleInit() {
     this.startKeepAlive()
 
@@ -134,7 +106,6 @@ export class BotService implements OnModuleInit {
       await this.handleTextInput(ctx)
     })
 
-    // ── Media handlers ──────────────────────────────────────────────────────
     this.bot.on('document', async ctx => {
       await this.handleMediaInput(ctx, 'document')
     })
@@ -255,25 +226,16 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  // ─── Browse: Edu type ───────────────────────────────────────────────────────
-  private async showEduTypeForBrowse(ctx: any, yearId: number, termId: number, courseId: number) {
-    this.setUserState(ctx, { mode: 'browseEduType', yearId, termId, courseId })
-    await ctx.reply('اختر نوع التعليم:', this.eduTypeKeyboard())
-  }
-
   // ─── Browse: File type ──────────────────────────────────────────────────────
+  // ← حذفنا showEduTypeForBrowse وصرنا نروح مباشرة لنوع الملف
   private async showFileTypeForBrowse(
     ctx: any,
     yearId: number,
     termId: number,
     courseId: number,
-    eduType: EducationType,
   ) {
-    this.setUserState(ctx, { mode: 'browseFileType', yearId, termId, courseId, eduType })
-    await ctx.reply(
-      `نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nاختر نوع الملف:`,
-      this.fileTypeKeyboard(),
-    )
+    this.setUserState(ctx, { mode: 'browseFileType', yearId, termId, courseId })
+    await ctx.reply('اختر نوع الملف:', this.fileTypeKeyboard())
   }
 
   // ─── Browse: Files ──────────────────────────────────────────────────────────
@@ -282,7 +244,6 @@ export class BotService implements OnModuleInit {
     yearId: number,
     termId: number,
     courseId: number,
-    eduType: EducationType,
     fileType: FileType,
   ) {
     try {
@@ -290,7 +251,7 @@ export class BotService implements OnModuleInit {
         where: { id: courseId },
         include: {
           files: {
-            where: { educationType: eduType, fileType },
+            where: { fileType },  // ← حذفنا فلتر educationType
             orderBy: { id: 'desc' },
           },
         },
@@ -303,9 +264,9 @@ export class BotService implements OnModuleInit {
 
       if (course.files.length === 0) {
         await ctx.reply(
-          `لا توجد ملفات من نوع "${FILE_TYPE_LABELS[fileType]}" لـ${EDU_TYPE_LABELS[eduType]} في هذه المادة.`,
+          `لا توجد ملفات من نوع "${FILE_TYPE_LABELS[fileType]}" في هذه المادة.`,
         )
-        await this.showFileTypeForBrowse(ctx, yearId, termId, courseId, eduType)
+        await this.showFileTypeForBrowse(ctx, yearId, termId, courseId)
         return
       }
 
@@ -324,10 +285,6 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  /**
-   * Send a stored file using the correct Telegram method based on mediaKind.
-   * Falls back to replyWithDocument if mediaKind is missing (old records).
-   */
   private async sendFile(
     ctx: any,
     file: { id: number; fileId: string; name: string | null; mediaKind?: string | null },
@@ -401,20 +358,15 @@ export class BotService implements OnModuleInit {
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
-  private async showEduTypeForAddFile(ctx: any, yearId: number, termId: number, courseId: number) {
-    this.setUserState(ctx, { mode: 'addFileEduType', yearId, termId, courseId })
-    await ctx.reply('اختر نوع التعليم للملف:', this.eduTypeKeyboard())
-  }
-
+  // ← حذفنا showEduTypeForAddFile وصرنا نروح مباشرة لنوع الملف
   private async showFileTypeForAddFile(
     ctx: any,
     yearId: number,
     termId: number,
     courseId: number,
-    eduType: EducationType,
   ) {
-    this.setUserState(ctx, { mode: 'addFileType', yearId, termId, courseId, eduType })
-    await ctx.reply(`نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\nاختر نوع الملف:`, this.fileTypeKeyboard())
+    this.setUserState(ctx, { mode: 'addFileType', yearId, termId, courseId })
+    await ctx.reply('اختر نوع الملف:', this.fileTypeKeyboard())
   }
 
   // ─── Admin: delete file – navigation ───────────────────────────────────────
@@ -509,28 +461,20 @@ export class BotService implements OnModuleInit {
       if (text === BUTTONS.back) { await this.showTermsForBrowse(ctx, state.yearId); return }
       const courseId = this.parseCourseId(text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
-      await this.showEduTypeForBrowse(ctx, state.yearId, state.termId, courseId)
-      return
-    }
-
-    // ── Browse: edu type ──
-    if (state.mode === 'browseEduType') {
-      if (text === BUTTONS.back) { await this.showCoursesForBrowse(ctx, state.yearId, state.termId); return }
-      const eduType = EDU_TYPE_BUTTONS[text]
-      if (!eduType) { await ctx.reply('اختر نوع التعليم من الأزرار.'); return }
-      await this.showFileTypeForBrowse(ctx, state.yearId, state.termId, state.courseId, eduType)
+      // ← مباشرة لنوع الملف بدون eduType
+      await this.showFileTypeForBrowse(ctx, state.yearId, state.termId, courseId)
       return
     }
 
     // ── Browse: file type ──
     if (state.mode === 'browseFileType') {
       if (text === BUTTONS.back) {
-        await this.showEduTypeForBrowse(ctx, state.yearId, state.termId, state.courseId)
+        await this.showCoursesForBrowse(ctx, state.yearId, state.termId)
         return
       }
       const fileType = FILE_TYPE_BUTTONS[text]
       if (!fileType) { await ctx.reply('اختر نوع الملف من الأزرار.'); return }
-      await this.showFilesForBrowse(ctx, state.yearId, state.termId, state.courseId, state.eduType, fileType)
+      await this.showFilesForBrowse(ctx, state.yearId, state.termId, state.courseId, fileType)
       return
     }
 
@@ -610,23 +554,15 @@ export class BotService implements OnModuleInit {
       if (text === BUTTONS.back) { await this.showTermsForAddFile(ctx, state.yearId); return }
       const courseId = this.parseCourseId(text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
-      await this.showEduTypeForAddFile(ctx, state.yearId, state.termId, courseId)
-      return
-    }
-
-    // ── Add file: edu type ──
-    if (state.mode === 'addFileEduType') {
-      if (text === BUTTONS.back) { await this.showCoursesForAddFile(ctx, state.yearId, state.termId); return }
-      const eduType = EDU_TYPE_BUTTONS[text]
-      if (!eduType) { await ctx.reply('اختر نوع التعليم من الأزرار.'); return }
-      await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId, eduType)
+      // ← مباشرة لنوع الملف بدون eduType
+      await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, courseId)
       return
     }
 
     // ── Add file: file type ──
     if (state.mode === 'addFileType') {
       if (text === BUTTONS.back) {
-        await this.showEduTypeForAddFile(ctx, state.yearId, state.termId, state.courseId)
+        await this.showCoursesForAddFile(ctx, state.yearId, state.termId)
         return
       }
       const fileType = FILE_TYPE_BUTTONS[text]
@@ -636,11 +572,10 @@ export class BotService implements OnModuleInit {
         yearId: state.yearId,
         termId: state.termId,
         courseId: state.courseId,
-        eduType: state.eduType,
         fileType,
       })
       await ctx.reply(
-        `نوع التعليم: ${EDU_TYPE_LABELS[state.eduType]}\nنوع الملف: ${FILE_TYPE_LABELS[fileType]}\n\nأرسل الملف (document / audio / voice) أو أرسل file_id كنص:`,
+        `نوع الملف: ${FILE_TYPE_LABELS[fileType]}\n\nأرسل الملف (document / audio / voice) أو أرسل file_id كنص:`,
         this.cancelKeyboard(),
       )
       return
@@ -649,17 +584,15 @@ export class BotService implements OnModuleInit {
     // ── Add file: upload (text = file_id) ──
     if (state.mode === 'addFileUpload') {
       if (text === BUTTONS.back) {
-        await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId, state.eduType)
+        await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, state.courseId)
         return
       }
-      // Treat plain text as a raw file_id (document fallback)
       await this.createCourseFile(
         ctx,
         state.courseId,
         state.termId,
         text,
         undefined,
-        state.eduType,
         state.fileType,
         'document',
       )
@@ -716,7 +649,7 @@ export class BotService implements OnModuleInit {
     }
   }
 
-  // ─── Unified media handler (document / audio / voice) ──────────────────────
+  // ─── Unified media handler ──────────────────────────────────────────────────
   private async handleMediaInput(ctx: any, kind: MediaKind) {
     const userId = ctx.from?.id
     if (!(await this.ensureAdminAccess(ctx, userId))) return
@@ -735,7 +668,6 @@ export class BotService implements OnModuleInit {
       fileName = ctx.message?.audio?.file_name ?? ctx.message?.audio?.title ?? undefined
     } else if (kind === 'voice') {
       fileId = ctx.message?.voice?.file_id
-      // Voice messages have no filename; leave undefined
     }
 
     if (!fileId) { await ctx.reply('الملف غير صالح.'); return }
@@ -746,7 +678,6 @@ export class BotService implements OnModuleInit {
       state.termId,
       fileId,
       fileName,
-      state.eduType,
       state.fileType,
       kind,
     )
@@ -857,7 +788,6 @@ export class BotService implements OnModuleInit {
     termId: number,
     fileId: string,
     name?: string,
-    eduType: EducationType = 'GENERAL',
     fileType: FileType = 'SUMMARY',
     mediaKind: MediaKind = 'document',
   ) {
@@ -873,9 +803,9 @@ export class BotService implements OnModuleInit {
           courseId,
           fileId,
           name: name?.trim() || undefined,
-          educationType: eduType,
+          educationType: "GENERAL",   // ← دايمًا null هلق
           fileType,
-          mediaKind,           // ← new field
+          mediaKind,
         },
       })
 
@@ -889,7 +819,6 @@ export class BotService implements OnModuleInit {
       await ctx.reply(
         `تمت إضافة ملف جديد (ID: ${created.id})\n` +
         `المادة: ${course.name}\n` +
-        `نوع التعليم: ${EDU_TYPE_LABELS[eduType]}\n` +
         `نوع الملف: ${FILE_TYPE_LABELS[fileType]}\n` +
         `نوع الوسائط: ${kindLabel[mediaKind]}`,
       )
@@ -924,13 +853,6 @@ export class BotService implements OnModuleInit {
     ]
     if (isAdmin) buttons.push([Markup.button.text(BUTTONS.admin)])
     return Markup.keyboard(buttons).resize()
-  }
-
-  private eduTypeKeyboard() {
-    return Markup.keyboard([
-      [Markup.button.text(BUTTONS.generalEdu), Markup.button.text(BUTTONS.openEdu)],
-      [Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)],
-    ]).resize()
   }
 
   private fileTypeKeyboard() {
@@ -980,24 +902,21 @@ export class BotService implements OnModuleInit {
     return Markup.keyboard(rows).resize()
   }
 
-  private filesKeyboard(files: Array<{ id: number; name: string | null; fileType?: string; educationType?: string }>) {
+  private filesKeyboard(files: Array<{ id: number; name: string | null; fileType?: string }>) {
     const rows = files.map(f => [
-      Markup.button.text(this.fileLabel(f.id, f.name, f.fileType as FileType | undefined, f.educationType as EducationType | undefined)),
+      Markup.button.text(this.fileLabel(f.id, f.name, f.fileType as FileType | undefined)),
     ])
     rows.push([Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)])
     return Markup.keyboard(rows).resize()
   }
 
   // ─── Labels ─────────────────────────────────────────────────────────────────
-  private yearLabel(id: number, name: string) { return `سنة: ${id} - ${name}` }
-  private termLabel(id: number, name: string) { return `فصل: ${id} - ${name}` }
-  private courseLabel(id: number, name: string) { return `مادة: ${id} - ${name}` }
-  private fileLabel(id: number, name: string | null, fileType?: FileType, eduType?: EducationType) {
-    const parts: string[] = []
-    if (eduType) parts.push(EDU_TYPE_LABELS[eduType])
-    if (fileType) parts.push(FILE_TYPE_LABELS[fileType])
-    const suffix = parts.length ? ` [${parts.join(' - ')}]` : ''
-    return `ملف: ${id} - ${name ?? `ملف ${id}`}${suffix}`
+  private yearLabel(id: number, name: string) { return `سنة: - ${name}` }
+  private termLabel(id: number, name: string) { return `فصل: - ${name}` }
+  private courseLabel(id: number, name: string) { return `مادة: - ${name}` }
+  private fileLabel(id: number, name: string | null, fileType?: FileType) {
+    const suffix = fileType ? ` [${FILE_TYPE_LABELS[fileType]}]` : ''
+    return `ملف: - ${name ?? `ملف $`}${suffix}`
   }
 
   // ─── Parsers ────────────────────────────────────────────────────────────────
