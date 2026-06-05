@@ -5,6 +5,24 @@ import { PrismaService } from '../prisma/prisma.service'
 const CHANNEL_URL = 'https://t.me/+OsdxPe9fzUg0Y2M0'
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
+
+  const message = `
+👋 أهلاً بك في بوت الملفات
+
+✨ يتم تحديث البوت بشكل مستمر
+
+📁 يمكنك رفع الملفات وإدارتها بسهولة
+
+🔹 قناة التلغرام:
+https://t.me/yourchannel
+
+🔹 الدعم الفني:
+@your_username
+
+اختر العملية
+`;
+
+
 const BUTTONS = {
   browse: '📚 تصفح الملفات',
   channelLink: '📢 رابط القناة الرئيسية',
@@ -89,7 +107,7 @@ export class BotService implements OnModuleInit {
 
     this.bot.start(async ctx => {
       this.clearUserState(ctx)
-      await this.showMainMenu(ctx, 'أهلا بك في بوت الملفات. اختر العملية:')
+      await this.showMainMenu(ctx, message)
     })
 
     this.bot.command('menu', async ctx => {
@@ -163,7 +181,7 @@ export class BotService implements OnModuleInit {
   }
 
   // ─── Main menu ──────────────────────────────────────────────────────────────
-  private async showMainMenu(ctx: any, text = 'اختر العملية:') {
+  private async showMainMenu(ctx: any, text = message) {
     this.setUserState(ctx, { mode: 'idle' })
     const userId = ctx.from?.id
     const admin = userId ? await this.isAdmin(userId) : false
