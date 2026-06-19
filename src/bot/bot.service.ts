@@ -3,23 +3,16 @@ import type { Prisma } from '@prisma/client'
 import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
-const CHANNEL_URL = 'https://t.me/+OsdxPe9fzUg0Y2M0'
+const CHANNEL_URL = 'https://t.me/+9p5va-ySLRkzMjE0'
 const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
   const message = `
-👋 أهلاً بك في بوت الملفات
+  اهلاً . في بوت قلم حقوقي ☺️ إختر من الأزرار أدناه 
 
-✨ يتم تحديث البوت بشكل مستمر
-
-📁 يمكنك رفع الملفات وإدارتها بسهولة
-
-🔹 قناة التلغرام:
+البوت يتم تحديثه أولاً بِأوّل لمواكبة كل جديد
+بإشراف أ.فاروق قلة 
+:القناة الرئيسية
 ${CHANNEL_URL}
-
-🔹 الدعم الفني:
-@your_username
-
-اختر العملية
 `;  
 
 const BUTTONS = {
