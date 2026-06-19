@@ -1,10 +1,9 @@
-import { Injectable, OnModuleInit } from '@nestjs/common'
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common'
 import type { Prisma } from '@prisma/client'
 import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
 const CHANNEL_URL = 'https://t.me/+9p5va-ySLRkzMjE0'
-const KEEP_ALIVE_URL = 'https://telebotcources.onrender.com/'
 
   const message = `
   اهلاً . في بوت قلم حقوقي ☺️ إختر من الأزرار أدناه 
@@ -37,6 +36,10 @@ const BUTTONS = {
   addAdmin: '👤 إضافة أدمن',
   listAdmins: '📋 قائمة الأدمن',
   removeAdmin: '❌ حذف أدمن',
+  stats: '📊 الإحصائيات',
+  userCount: '👥 عدد المستخدمين',
+  listUsers: '📋 قائمة المستخدمين',
+  searchUser: '🔍 بحث عن مستخدم',
   back: '⬅️ رجوع',
   cancel: '❌ إلغاء',
   mainMenu: '🏠 القائمة الرئيسية',
@@ -60,6 +63,8 @@ const FILE_TYPE_BUTTONS: Record<string, FileType> = {
   [BUTTONS.ftRecordings]: 'RECORDINGS',
 }
 
+const USERS_PER_PAGE = 50
+
 // ─── User state ───────────────────────────────────────────────────────────────
 type UserState =
   | { mode: 'idle' }
@@ -68,6 +73,8 @@ type UserState =
   | { mode: 'browseCourse'; yearId: number; termId: number; choices: Record<string, number> }
   | { mode: 'browseFileType'; yearId: number; termId: number; courseId: number }
   | { mode: 'adminPanel' }
+  | { mode: 'statsPanel' }
+  | { mode: 'searchUser' }
   | { mode: 'addYearName' }
   | { mode: 'addTermYear' }
   | { mode: 'addTermName'; yearId: number }
@@ -92,7 +99,7 @@ type UserState =
   | { mode: 'removeAdminId' }
 
 @Injectable()
-export class BotService implements OnModuleInit {
+export class BotService implements OnModuleInit, OnModuleDestroy {
   constructor(private prisma: PrismaService) {}
 
   bot = new Telegraf(process.env.BOT_TOKEN!)
@@ -103,16 +110,19 @@ export class BotService implements OnModuleInit {
     this.startKeepAlive()
 
     this.bot.start(async ctx => {
+      await this.trackUser(ctx)
       this.clearUserState(ctx)
-     await this.showMainMenu(ctx, message)
-        })
+      await this.showMainMenu(ctx, message)
+    })
 
     this.bot.command('menu', async ctx => {
+      await this.trackUser(ctx)
       this.clearUserState(ctx)
       await this.showMainMenu(ctx)
     })
 
     this.bot.command('files', async ctx => {
+      await this.trackUser(ctx)
       this.clearUserState(ctx)
       await this.showYearsForBrowse(ctx)
     })
@@ -133,24 +143,55 @@ export class BotService implements OnModuleInit {
       await this.handleMediaInput(ctx, 'voice')
     })
 
-    const appUrl = process.env.APP_URL
-    if (!appUrl) throw new Error('APP_URL is required to set the Telegram webhook.')
-    await this.bot.telegram.deleteWebhook()
-    await this.bot.telegram.setWebhook(`${appUrl}/telegram`, { drop_pending_updates: true })
+    await this.bot.telegram.deleteWebhook({ drop_pending_updates: true })
+    await this.bot.launch()
+    console.log('[Bot] Polling started')
+  }
+
+  async onModuleDestroy() {
+    if (this.keepAliveInterval) clearInterval(this.keepAliveInterval)
+    await this.bot.stop('NestJS shutdown')
   }
 
   // ─── Keep-alive ─────────────────────────────────────────────────────────────
   private startKeepAlive() {
+    if (!process.env.KEEP_ALIVE_URL) return
     this.pingServer()
     this.keepAliveInterval = setInterval(() => this.pingServer(), 60 * 60 * 1000)
   }
 
   private async pingServer() {
+    const url = process.env.KEEP_ALIVE_URL
+    if (!url) return
     try {
-      const res = await fetch(KEEP_ALIVE_URL)
-      console.log(`[Keep-alive] ${KEEP_ALIVE_URL} → ${res.status}`)
+      const res = await fetch(url)
+      console.log(`[Keep-alive] ${url} → ${res.status}`)
     } catch (err) {
       console.error('[Keep-alive] Ping failed:', err)
+    }
+  }
+
+  // ─── User tracking ────────────────────────────────────────────────────────────
+  private async trackUser(ctx: any): Promise<void> {
+    const from = ctx.from
+    if (!from?.id) return
+    try {
+      await this.prisma.user.upsert({
+        where: { id: BigInt(from.id) },
+        create: {
+          id: BigInt(from.id),
+          username: from.username ?? null,
+          firstName: from.first_name ?? null,
+          lastName: from.last_name ?? null,
+        },
+        update: {
+          username: from.username ?? null,
+          firstName: from.first_name ?? null,
+          lastName: from.last_name ?? null,
+        },
+      })
+    } catch (error) {
+      console.error('Error tracking user:', error)
     }
   }
 
@@ -193,7 +234,143 @@ export class BotService implements OnModuleInit {
     await ctx.reply('لوحة الإدارة:', this.adminKeyboard())
   }
 
-  // ─── Browse: Years ──────────────────────────────────────────────────────────
+  // ─── Stats panel ────────────────────────────────────────────────────────────
+  private async showStatsPanel(ctx: any) {
+    const userId = ctx.from?.id
+    if (!(await this.ensureAdminAccess(ctx, userId))) return
+    this.setUserState(ctx, { mode: 'statsPanel' })
+    await ctx.reply('📊 لوحة الإحصائيات:', this.statsKeyboard())
+  }
+
+  private async showUserCount(ctx: any) {
+    const userId = ctx.from?.id
+    if (!(await this.ensureAdminAccess(ctx, userId))) return
+    try {
+      const now = Date.now()
+      const dayAgo = new Date(now - 24 * 60 * 60 * 1000)
+      const monthAgo = new Date(now - 30 * 24 * 60 * 60 * 1000)
+
+      const [total, last24h, lastMonth] = await Promise.all([
+        this.prisma.user.count(),
+        this.prisma.user.count({ where: { lastSeenAt: { gte: dayAgo } } }),
+        this.prisma.user.count({ where: { lastSeenAt: { gte: monthAgo } } }),
+      ])
+
+      await ctx.reply(
+        `📊 إحصائيات المستخدمين:\n\n` +
+          `👥 الإجمالي: ${total}\n` +
+          `🕐 نشطون آخر 24 ساعة: ${last24h}\n` +
+          `📅 نشطون آخر شهر: ${lastMonth}`,
+        this.statsKeyboard(),
+      )
+    } catch (error) {
+      console.error(error)
+      await ctx.reply('حدث خطأ في جلب الإحصائيات.', this.statsKeyboard())
+    }
+  }
+
+  private formatUserEntry(
+    user: {
+      id: bigint
+      username: string | null
+      firstName: string | null
+      lastName: string | null
+      createdAt: Date
+      lastSeenAt: Date
+    },
+    index: number,
+  ): string {
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ') || '—'
+    const username = user.username ? `@${user.username}` : '—'
+    const joined = user.createdAt.toISOString().slice(0, 10)
+    const lastSeen = user.lastSeenAt.toISOString().slice(0, 16).replace('T', ' ')
+    return (
+      `${index}. ID: ${user.id}\n` +
+      `   الاسم: ${name}\n` +
+      `   المعرف: ${username}\n` +
+      `   انضم: ${joined}\n` +
+      `   آخر نشاط: ${lastSeen}`
+    )
+  }
+
+  private async listUsers(ctx: any) {
+    const userId = ctx.from?.id
+    if (!(await this.ensureAdminAccess(ctx, userId))) return
+    try {
+      const users = await this.prisma.user.findMany({ orderBy: { createdAt: 'desc' } })
+      if (users.length === 0) {
+        await ctx.reply('لا يوجد مستخدمون مسجلون بعد.', this.statsKeyboard())
+        return
+      }
+
+      const total = users.length
+      for (let offset = 0; offset < total; offset += USERS_PER_PAGE) {
+        const chunk = users.slice(offset, offset + USERS_PER_PAGE)
+        const from = offset + 1
+        const to = offset + chunk.length
+        const list = chunk.map((user, i) => this.formatUserEntry(user, offset + i + 1)).join('\n\n')
+        const header = `📋 المستخدمون (${from}-${to} من ${total}):\n\n`
+        const keyboard = offset + USERS_PER_PAGE >= total ? this.statsKeyboard() : undefined
+        await ctx.reply(header + list, keyboard)
+      }
+    } catch (error) {
+      console.error(error)
+      await ctx.reply('حدث خطأ في جلب قائمة المستخدمين.', this.statsKeyboard())
+    }
+  }
+
+  private async searchUserByQuery(ctx: any, query: string) {
+    const userId = ctx.from?.id
+    if (!(await this.ensureAdminAccess(ctx, userId))) return
+    const trimmed = query.trim().replace(/^@/, '')
+    if (!trimmed) {
+      await ctx.reply('أرسل ID أو اسم المستخدم للبحث.', this.statsKeyboard())
+      return
+    }
+
+    try {
+      let users: Array<{
+        id: bigint
+        username: string | null
+        firstName: string | null
+        lastName: string | null
+        createdAt: Date
+        lastSeenAt: Date
+      }> = []
+
+      if (/^\d+$/.test(trimmed)) {
+        const user = await this.prisma.user.findUnique({ where: { id: BigInt(trimmed) } })
+        if (user) users = [user]
+      } else {
+        users = await this.prisma.user.findMany({
+          where: {
+            OR: [
+              { username: { contains: trimmed, mode: 'insensitive' } },
+              { firstName: { contains: trimmed, mode: 'insensitive' } },
+              { lastName: { contains: trimmed, mode: 'insensitive' } },
+            ],
+          },
+          take: 20,
+          orderBy: { lastSeenAt: 'desc' },
+        })
+      }
+
+      this.setUserState(ctx, { mode: 'statsPanel' })
+
+      if (users.length === 0) {
+        await ctx.reply('لم يتم العثور على مستخدم.', this.statsKeyboard())
+        return
+      }
+
+      const list = users.map((user, i) => this.formatUserEntry(user, i + 1)).join('\n\n')
+      await ctx.reply(`🔍 نتائج البحث (${users.length}):\n\n${list}`, this.statsKeyboard())
+    } catch (error) {
+      console.error(error)
+      await ctx.reply('حدث خطأ أثناء البحث.', this.statsKeyboard())
+    }
+  }
+
+  // ─── Admin panel (continued) ────────────────────────────────────────────────
   private async showYearsForBrowse(ctx: any, text = 'اختر السنة:') {
     try {
       const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
@@ -488,6 +665,7 @@ export class BotService implements OnModuleInit {
 
   // ─── Text handler ───────────────────────────────────────────────────────────
   private async handleTextInput(ctx: any) {
+    await this.trackUser(ctx)
     const text = ctx.message?.text?.trim()
     const userId = ctx.from?.id
     if (!text) return
@@ -499,6 +677,7 @@ export class BotService implements OnModuleInit {
 
     if (state.mode === 'idle') { await this.handleMainMenuButtons(ctx, text); return }
     if (state.mode === 'adminPanel') { await this.handleAdminPanelButtons(ctx, text); return }
+    if (state.mode === 'statsPanel') { await this.handleStatsPanelButtons(ctx, text); return }
 
     // ── Browse: year ──
     if (state.mode === 'browseYear') {
@@ -753,6 +932,14 @@ export class BotService implements OnModuleInit {
     if (state.mode === 'removeAdminId') {
       if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
       await this.removeAdmin(ctx, text)
+      return
+    }
+
+    // ── Search user ──
+    if (state.mode === 'searchUser') {
+      if (text === BUTTONS.back) { await this.showStatsPanel(ctx); return }
+      await this.searchUserByQuery(ctx, text)
+      return
     }
   }
 
@@ -825,7 +1012,23 @@ export class BotService implements OnModuleInit {
       await ctx.reply('أرسل ID الأدمن المراد حذفه:', this.cancelKeyboard())
       return
     }
+    if (text === BUTTONS.stats) { await this.showStatsPanel(ctx); return }
     await this.showAdminPanel(ctx)
+  }
+
+  // ─── Stats panel buttons ────────────────────────────────────────────────────
+  private async handleStatsPanelButtons(ctx: any, text: string) {
+    const userId = ctx.from?.id
+    if (!(await this.ensureAdminAccess(ctx, userId))) return
+    if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
+    if (text === BUTTONS.userCount) { await this.showUserCount(ctx); return }
+    if (text === BUTTONS.listUsers) { await this.listUsers(ctx); return }
+    if (text === BUTTONS.searchUser) {
+      this.setUserState(ctx, { mode: 'searchUser' })
+      await ctx.reply('أرسل ID المستخدم أو اسمه أو @username للبحث:', this.cancelKeyboard())
+      return
+    }
+    await this.showStatsPanel(ctx)
   }
 
   // ─── CRUD ───────────────────────────────────────────────────────────────────
@@ -1040,7 +1243,15 @@ export class BotService implements OnModuleInit {
       [Markup.button.text(BUTTONS.deleteFile), Markup.button.text(BUTTONS.deleteTerm)],
       [Markup.button.text(BUTTONS.deleteCourse)],
       [Markup.button.text(BUTTONS.addAdmin), Markup.button.text(BUTTONS.listAdmins)],
-      [Markup.button.text(BUTTONS.removeAdmin)],
+      [Markup.button.text(BUTTONS.removeAdmin), Markup.button.text(BUTTONS.stats)],
+      [Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)],
+    ]).resize()
+  }
+
+  private statsKeyboard() {
+    return Markup.keyboard([
+      [Markup.button.text(BUTTONS.userCount), Markup.button.text(BUTTONS.listUsers)],
+      [Markup.button.text(BUTTONS.searchUser)],
       [Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)],
     ]).resize()
   }

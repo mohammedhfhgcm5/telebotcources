@@ -28,6 +28,19 @@ model Admin {
   id BigInt @id
 }
 
+model User {
+  id         BigInt   @id
+  username   String?
+  firstName  String?
+  lastName   String?
+  lastSeenAt DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@index([lastSeenAt])
+  @@index([createdAt])
+  @@index([username])
+}
+
 model Year {
   id    Int    @id @default(autoincrement())
   name  String @unique
