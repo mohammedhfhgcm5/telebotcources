@@ -1,4 +1,5 @@
 import { Injectable, OnModuleInit } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import { Markup, Telegraf } from 'telegraf'
 import { PrismaService } from '../prisma/prisma.service'
 
@@ -27,7 +28,6 @@ const BUTTONS = {
   admin: '⚙️ لوحة الإدارة',
 
   // File types
-  ftSummary: '📝 ملخص قلم حقوقي',
   ftBank: '🏦 بنك قلم حقوقي',
   ftGolden: '🌟 دهبية',
   ftCourses: '🎓 دورات',
@@ -39,6 +39,8 @@ const BUTTONS = {
   addCourse: '➕ إضافة مادة',
   addFile: '📎 إضافة ملف',
   deleteFile: '🗑️ حذف ملف',
+  deleteTerm: '🗑️ حذف فصل',
+  deleteCourse: '🗑️ حذف مادة',
   addAdmin: '👤 إضافة أدمن',
   listAdmins: '📋 قائمة الأدمن',
   removeAdmin: '❌ حذف أدمن',
@@ -59,7 +61,6 @@ const FILE_TYPE_LABELS: Record<FileType, string> = {
 }
 
 const FILE_TYPE_BUTTONS: Record<string, FileType> = {
-  [BUTTONS.ftSummary]: 'SUMMARY',
   [BUTTONS.ftBank]: 'BANK',
   [BUTTONS.ftGolden]: 'GOLDEN',
   [BUTTONS.ftCourses]: 'COURSES',
@@ -70,25 +71,30 @@ const FILE_TYPE_BUTTONS: Record<string, FileType> = {
 type UserState =
   | { mode: 'idle' }
   | { mode: 'browseYear' }
-  | { mode: 'browseTerm'; yearId: number }
-  | { mode: 'browseCourse'; yearId: number; termId: number }
+  | { mode: 'browseTerm'; yearId: number; choices: Record<string, number> }
+  | { mode: 'browseCourse'; yearId: number; termId: number; choices: Record<string, number> }
   | { mode: 'browseFileType'; yearId: number; termId: number; courseId: number }
   | { mode: 'adminPanel' }
   | { mode: 'addYearName' }
   | { mode: 'addTermYear' }
   | { mode: 'addTermName'; yearId: number }
   | { mode: 'addCourseYear' }
-  | { mode: 'addCourseTerm'; yearId: number }
+  | { mode: 'addCourseTerm'; yearId: number; choices: Record<string, number> }
   | { mode: 'addCourseName'; yearId: number; termId: number }
   | { mode: 'addFileYear' }
-  | { mode: 'addFileTerm'; yearId: number }
-  | { mode: 'addFileCourse'; yearId: number; termId: number }
+  | { mode: 'addFileTerm'; yearId: number; choices: Record<string, number> }
+  | { mode: 'addFileCourse'; yearId: number; termId: number; choices: Record<string, number> }
   | { mode: 'addFileType'; yearId: number; termId: number; courseId: number }
   | { mode: 'addFileUpload'; yearId: number; termId: number; courseId: number; fileType: FileType }
   | { mode: 'deleteFileYear' }
-  | { mode: 'deleteFileTerm'; yearId: number }
-  | { mode: 'deleteFileCourse'; yearId: number; termId: number }
+  | { mode: 'deleteFileTerm'; yearId: number; choices: Record<string, number> }
+  | { mode: 'deleteFileCourse'; yearId: number; termId: number; choices: Record<string, number> }
   | { mode: 'deleteFileFile'; yearId: number; termId: number; courseId: number }
+  | { mode: 'deleteTermYear' }
+  | { mode: 'deleteTermTerm'; yearId: number; choices: Record<string, number> }
+  | { mode: 'deleteCourseYear' }
+  | { mode: 'deleteCourseTerm'; yearId: number; choices: Record<string, number> }
+  | { mode: 'deleteCourseCourse'; yearId: number; termId: number; choices: Record<string, number> }
   | { mode: 'addAdminId' }
   | { mode: 'removeAdminId' }
 
@@ -218,7 +224,7 @@ export class BotService implements OnModuleInit {
         await this.showYearsForBrowse(ctx, 'لا توجد فصول في هذه السنة. اختر سنة أخرى:')
         return
       }
-      this.setUserState(ctx, { mode: 'browseTerm', yearId })
+      this.setUserState(ctx, { mode: 'browseTerm', yearId, choices: this.buildChoices(terms) })
       await ctx.reply('اختر الفصل:', this.termsKeyboard(terms))
     } catch (error) {
       console.error(error)
@@ -234,7 +240,7 @@ export class BotService implements OnModuleInit {
         await this.showTermsForBrowse(ctx, yearId)
         return
       }
-      this.setUserState(ctx, { mode: 'browseCourse', yearId, termId })
+      this.setUserState(ctx, { mode: 'browseCourse', yearId, termId, choices: this.buildChoices(courses) })
       await ctx.reply('اختر المادة:', this.coursesKeyboard(courses))
     } catch (error) {
       console.error(error)
@@ -341,7 +347,7 @@ export class BotService implements OnModuleInit {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
-      this.setUserState(ctx, { mode: 'addCourseTerm', yearId })
+      this.setUserState(ctx, { mode: 'addCourseTerm', yearId, choices: this.buildChoices(terms) })
       await ctx.reply('اختر الفصل لإضافة مادة:', this.termsKeyboard(terms))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
@@ -360,7 +366,7 @@ export class BotService implements OnModuleInit {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
-      this.setUserState(ctx, { mode: 'addFileTerm', yearId })
+      this.setUserState(ctx, { mode: 'addFileTerm', yearId, choices: this.buildChoices(terms) })
       await ctx.reply('اختر الفصل لإضافة ملف:', this.termsKeyboard(terms))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
@@ -369,7 +375,7 @@ export class BotService implements OnModuleInit {
     try {
       const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
       if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل. أضف مادة أولا.', this.adminKeyboard()); return }
-      this.setUserState(ctx, { mode: 'addFileCourse', yearId, termId })
+      this.setUserState(ctx, { mode: 'addFileCourse', yearId, termId, choices: this.buildChoices(courses) })
       await ctx.reply('اختر المادة لإضافة ملف:', this.coursesKeyboard(courses))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
@@ -399,7 +405,7 @@ export class BotService implements OnModuleInit {
     try {
       const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
       if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
-      this.setUserState(ctx, { mode: 'deleteFileTerm', yearId })
+      this.setUserState(ctx, { mode: 'deleteFileTerm', yearId, choices: this.buildChoices(terms) })
       await ctx.reply('اختر الفصل لحذف ملف:', this.termsKeyboard(terms))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
@@ -408,7 +414,7 @@ export class BotService implements OnModuleInit {
     try {
       const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
       if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل.', this.adminKeyboard()); return }
-      this.setUserState(ctx, { mode: 'deleteFileCourse', yearId, termId })
+      this.setUserState(ctx, { mode: 'deleteFileCourse', yearId, termId, choices: this.buildChoices(courses) })
       await ctx.reply('اختر المادة لحذف ملف منها:', this.coursesKeyboard(courses))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
@@ -427,6 +433,53 @@ export class BotService implements OnModuleInit {
       }
       this.setUserState(ctx, { mode: 'deleteFileFile', yearId, termId, courseId })
       await ctx.reply('اختر الملف المراد حذفه:', this.filesKeyboard(course.files))
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
+  }
+
+  // ─── Admin: delete term – navigation ───────────────────────────────────────
+  private async showYearsForDeleteTerm(ctx: any) {
+    try {
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات حاليا.', this.adminKeyboard()); return }
+      this.setUserState(ctx, { mode: 'deleteTermYear' })
+      await ctx.reply('اختر السنة لحذف فصل:', this.yearsKeyboard(years))
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
+  }
+
+  private async showTermsForDeleteTerm(ctx: any, yearId: number) {
+    try {
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
+      if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
+      this.setUserState(ctx, { mode: 'deleteTermTerm', yearId, choices: this.buildChoices(terms) })
+      await ctx.reply('اختر الفصل المراد حذفه:', this.termsKeyboard(terms))
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
+  }
+
+  // ─── Admin: delete course – navigation ─────────────────────────────────────
+  private async showYearsForDeleteCourse(ctx: any) {
+    try {
+      const years = await this.prisma.year.findMany({ orderBy: { id: 'asc' } })
+      if (years.length === 0) { await ctx.reply('لا توجد سنوات حاليا.', this.adminKeyboard()); return }
+      this.setUserState(ctx, { mode: 'deleteCourseYear' })
+      await ctx.reply('اختر السنة لحذف مادة:', this.yearsKeyboard(years))
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
+  }
+
+  private async showTermsForDeleteCourse(ctx: any, yearId: number) {
+    try {
+      const terms = await this.prisma.term.findMany({ where: { yearId }, orderBy: { id: 'asc' } })
+      if (terms.length === 0) { await ctx.reply('لا توجد فصول في هذه السنة.', this.adminKeyboard()); return }
+      this.setUserState(ctx, { mode: 'deleteCourseTerm', yearId, choices: this.buildChoices(terms) })
+      await ctx.reply('اختر الفصل لحذف مادة:', this.termsKeyboard(terms))
+    } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
+  }
+
+  private async showCoursesForDeleteCourse(ctx: any, yearId: number, termId: number) {
+    try {
+      const courses = await this.prisma.course.findMany({ where: { termId }, orderBy: { id: 'asc' } })
+      if (courses.length === 0) { await ctx.reply('لا توجد مواد في هذا الفصل.', this.adminKeyboard()); return }
+      this.setUserState(ctx, { mode: 'deleteCourseCourse', yearId, termId, choices: this.buildChoices(courses) })
+      await ctx.reply('اختر المادة المراد حذفها:', this.coursesKeyboard(courses))
     } catch (error) { console.error(error); await ctx.reply('حدث خطأ.', this.adminKeyboard()) }
   }
 
@@ -466,7 +519,7 @@ export class BotService implements OnModuleInit {
     // ── Browse: term ──
     if (state.mode === 'browseTerm') {
       if (text === BUTTONS.back) { await this.showYearsForBrowse(ctx); return }
-      const termId = this.parseTermId(text)
+      const termId = this.resolveChoice(state.choices, text)
       if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
       await this.showCoursesForBrowse(ctx, state.yearId, termId)
       return
@@ -475,7 +528,7 @@ export class BotService implements OnModuleInit {
     // ── Browse: course ──
     if (state.mode === 'browseCourse') {
       if (text === BUTTONS.back) { await this.showTermsForBrowse(ctx, state.yearId); return }
-      const courseId = this.parseCourseId(text)
+      const courseId = this.resolveChoice(state.choices, text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
       // ← مباشرة لنوع الملف بدون eduType
       await this.showFileTypeForBrowse(ctx, state.yearId, state.termId, courseId)
@@ -533,7 +586,7 @@ export class BotService implements OnModuleInit {
     // ── Add course: term ──
     if (state.mode === 'addCourseTerm') {
       if (text === BUTTONS.back) { await this.showYearsForAddCourse(ctx); return }
-      const termId = this.parseTermId(text)
+      const termId = this.resolveChoice(state.choices, text)
       if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
       this.setUserState(ctx, { mode: 'addCourseName', yearId: state.yearId, termId })
       await ctx.reply('أرسل اسم المادة الجديدة:', this.cancelKeyboard())
@@ -559,7 +612,7 @@ export class BotService implements OnModuleInit {
     // ── Add file: term ──
     if (state.mode === 'addFileTerm') {
       if (text === BUTTONS.back) { await this.showYearsForAddFile(ctx); return }
-      const termId = this.parseTermId(text)
+      const termId = this.resolveChoice(state.choices, text)
       if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
       await this.showCoursesForAddFile(ctx, state.yearId, termId)
       return
@@ -568,7 +621,7 @@ export class BotService implements OnModuleInit {
     // ── Add file: course ──
     if (state.mode === 'addFileCourse') {
       if (text === BUTTONS.back) { await this.showTermsForAddFile(ctx, state.yearId); return }
-      const courseId = this.parseCourseId(text)
+      const courseId = this.resolveChoice(state.choices, text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
       // ← مباشرة لنوع الملف بدون eduType
       await this.showFileTypeForAddFile(ctx, state.yearId, state.termId, courseId)
@@ -627,7 +680,7 @@ export class BotService implements OnModuleInit {
     // ── Delete file: term ──
     if (state.mode === 'deleteFileTerm') {
       if (text === BUTTONS.back) { await this.showYearsForDeleteFile(ctx); return }
-      const termId = this.parseTermId(text)
+      const termId = this.resolveChoice(state.choices, text)
       if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
       await this.showCoursesForDeleteFile(ctx, state.yearId, termId)
       return
@@ -636,7 +689,7 @@ export class BotService implements OnModuleInit {
     // ── Delete file: course ──
     if (state.mode === 'deleteFileCourse') {
       if (text === BUTTONS.back) { await this.showTermsForDeleteFile(ctx, state.yearId); return }
-      const courseId = this.parseCourseId(text)
+      const courseId = this.resolveChoice(state.choices, text)
       if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
       await this.showFilesForDeleteFile(ctx, state.yearId, state.termId, courseId)
       return
@@ -648,6 +701,51 @@ export class BotService implements OnModuleInit {
       const fileRowId = this.parseFileRowId(text)
       if (!fileRowId) { await ctx.reply('اختر ملف من الأزرار.'); return }
       await this.deleteCourseFile(ctx, state.yearId, state.termId, state.courseId, fileRowId)
+      return
+    }
+
+    // ── Delete term: year ──
+    if (state.mode === 'deleteTermYear') {
+      if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
+      const yearId = this.parseYearId(text)
+      if (!yearId) { await ctx.reply('اختر سنة من الأزرار.'); return }
+      await this.showTermsForDeleteTerm(ctx, yearId)
+      return
+    }
+
+    // ── Delete term: term ──
+    if (state.mode === 'deleteTermTerm') {
+      if (text === BUTTONS.back) { await this.showYearsForDeleteTerm(ctx); return }
+      const termId = this.resolveChoice(state.choices, text)
+      if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
+      await this.deleteTerm(ctx, state.yearId, termId)
+      return
+    }
+
+    // ── Delete course: year ──
+    if (state.mode === 'deleteCourseYear') {
+      if (text === BUTTONS.back) { await this.showAdminPanel(ctx); return }
+      const yearId = this.parseYearId(text)
+      if (!yearId) { await ctx.reply('اختر سنة من الأزرار.'); return }
+      await this.showTermsForDeleteCourse(ctx, yearId)
+      return
+    }
+
+    // ── Delete course: term ──
+    if (state.mode === 'deleteCourseTerm') {
+      if (text === BUTTONS.back) { await this.showYearsForDeleteCourse(ctx); return }
+      const termId = this.resolveChoice(state.choices, text)
+      if (!termId) { await ctx.reply('اختر فصل من الأزرار.'); return }
+      await this.showCoursesForDeleteCourse(ctx, state.yearId, termId)
+      return
+    }
+
+    // ── Delete course: course ──
+    if (state.mode === 'deleteCourseCourse') {
+      if (text === BUTTONS.back) { await this.showTermsForDeleteCourse(ctx, state.yearId); return }
+      const courseId = this.resolveChoice(state.choices, text)
+      if (!courseId) { await ctx.reply('اختر مادة من الأزرار.'); return }
+      await this.deleteCourse(ctx, state.yearId, state.termId, courseId)
       return
     }
 
@@ -721,6 +819,8 @@ export class BotService implements OnModuleInit {
     if (text === BUTTONS.addCourse) { await this.showYearsForAddCourse(ctx); return }
     if (text === BUTTONS.addFile) { await this.showYearsForAddFile(ctx); return }
     if (text === BUTTONS.deleteFile) { await this.showYearsForDeleteFile(ctx); return }
+    if (text === BUTTONS.deleteTerm) { await this.showYearsForDeleteTerm(ctx); return }
+    if (text === BUTTONS.deleteCourse) { await this.showYearsForDeleteCourse(ctx); return }
     if (text === BUTTONS.addAdmin) {
       this.setUserState(ctx, { mode: 'addAdminId' })
       await ctx.reply('أرسل ID المستخدم (Telegram User ID):', this.cancelKeyboard())
@@ -819,10 +919,10 @@ export class BotService implements OnModuleInit {
           courseId,
           fileId,
           name: name?.trim() || undefined,
-          educationType: "GENERAL",   // ← دايمًا null هلق
+          educationType: 'GENERAL',
           fileType,
           mediaKind,
-        },
+        } as Prisma.CourseFileUncheckedCreateInput,
       })
 
       const kindLabel: Record<MediaKind, string> = {
@@ -833,6 +933,7 @@ export class BotService implements OnModuleInit {
 
       this.clearUserState(ctx)
       await ctx.reply(
+        
         `تمت إضافة ملف جديد (ID: ${created.id})\n` +
         `المادة: ${course.name}\n` +
         `نوع الملف: ${FILE_TYPE_LABELS[fileType]}\n` +
@@ -861,6 +962,64 @@ export class BotService implements OnModuleInit {
     } catch (error: any) { console.error(error); await ctx.reply(`فشل حذف الملف. الخطأ: ${error.message || 'غير معروف'}`) }
   }
 
+  private async deleteTerm(ctx: any, yearId: number, termId: number) {
+    try {
+      const term = await this.prisma.term.findUnique({
+        where: { id: termId },
+        include: { year: true, courses: { select: { id: true } } },
+      })
+      if (!term || term.yearId !== yearId) {
+        await ctx.reply('الفصل غير موجود في هذه السنة.')
+        await this.showTermsForDeleteTerm(ctx, yearId)
+        return
+      }
+
+      await this.prisma.$transaction(async tx => {
+        const courseIds = term.courses.map(c => c.id)
+        if (courseIds.length > 0) {
+          await tx.courseFile.deleteMany({ where: { courseId: { in: courseIds } } })
+          await tx.course.deleteMany({ where: { termId } })
+        }
+        await tx.term.delete({ where: { id: termId } })
+      })
+
+      this.clearUserState(ctx)
+      await ctx.reply(`تم حذف الفصل: ${term.name} (السنة: ${term.year.name})`)
+      await this.showAdminPanel(ctx)
+    } catch (error: any) {
+      console.error(error)
+      await ctx.reply(`فشل حذف الفصل. الخطأ: ${error.message || 'غير معروف'}`)
+    }
+  }
+
+  private async deleteCourse(ctx: any, yearId: number, termId: number, courseId: number) {
+    try {
+      const course = await this.prisma.course.findUnique({
+        where: { id: courseId },
+        include: { term: { include: { year: true } } },
+      })
+      if (!course || course.termId !== termId || course.term.yearId !== yearId) {
+        await ctx.reply('المادة غير موجودة في هذا الفصل.')
+        await this.showCoursesForDeleteCourse(ctx, yearId, termId)
+        return
+      }
+
+      await this.prisma.$transaction(async tx => {
+        await tx.courseFile.deleteMany({ where: { courseId } })
+        await tx.course.delete({ where: { id: courseId } })
+      })
+
+      this.clearUserState(ctx)
+      await ctx.reply(
+        `تم حذف المادة: ${course.name} (الفصل: ${course.term.name} - السنة: ${course.term.year.name})`,
+      )
+      await this.showAdminPanel(ctx)
+    } catch (error: any) {
+      console.error(error)
+      await ctx.reply(`فشل حذف المادة. الخطأ: ${error.message || 'غير معروف'}`)
+    }
+  }
+
   // ─── Keyboards ──────────────────────────────────────────────────────────────
   private mainKeyboard(isAdmin: boolean) {
     const buttons: any[][] = [
@@ -873,7 +1032,6 @@ export class BotService implements OnModuleInit {
 
   private fileTypeKeyboard() {
     return Markup.keyboard([
-      [Markup.button.text(BUTTONS.ftSummary)],
       [Markup.button.text(BUTTONS.ftBank)],
       [Markup.button.text(BUTTONS.ftGolden)],
       [Markup.button.text(BUTTONS.ftCourses)],
@@ -886,7 +1044,8 @@ export class BotService implements OnModuleInit {
     return Markup.keyboard([
       [Markup.button.text(BUTTONS.addYear), Markup.button.text(BUTTONS.addTerm)],
       [Markup.button.text(BUTTONS.addCourse), Markup.button.text(BUTTONS.addFile)],
-      [Markup.button.text(BUTTONS.deleteFile)],
+      [Markup.button.text(BUTTONS.deleteFile), Markup.button.text(BUTTONS.deleteTerm)],
+      [Markup.button.text(BUTTONS.deleteCourse)],
       [Markup.button.text(BUTTONS.addAdmin), Markup.button.text(BUTTONS.listAdmins)],
       [Markup.button.text(BUTTONS.removeAdmin)],
       [Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)],
@@ -907,13 +1066,13 @@ export class BotService implements OnModuleInit {
   }
 
   private termsKeyboard(terms: Array<{ id: number; name: string }>) {
-    const rows = terms.map(t => [Markup.button.text(this.termLabel(t.id, t.name))])
+    const rows = terms.map(t => [Markup.button.text(this.termLabel(t.name))])
     rows.push([Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)])
     return Markup.keyboard(rows).resize()
   }
 
   private coursesKeyboard(courses: Array<{ id: number; name: string }>) {
-    const rows = courses.map(c => [Markup.button.text(this.courseLabel(c.id, c.name))])
+    const rows = courses.map(c => [Markup.button.text(this.courseLabel(c.name))])
     rows.push([Markup.button.text(BUTTONS.back), Markup.button.text(BUTTONS.mainMenu)])
     return Markup.keyboard(rows).resize()
   }
@@ -928,24 +1087,25 @@ export class BotService implements OnModuleInit {
 
   // ─── Labels ─────────────────────────────────────────────────────────────────
   private yearLabel(id: number, name: string) { return `سنة: ${id} - ${name}` }
-  private termLabel(id: number, name: string) { return `فصل: ${id} - ${name}` }
-  private courseLabel(id: number, name: string) { return `مادة: ${id} - ${name}` }
+  private termLabel(name: string) { return name }
+  private courseLabel(name: string) { return name }
   private fileLabel(id: number, name: string | null, fileType?: FileType) {
     const suffix = fileType ? ` [${FILE_TYPE_LABELS[fileType]}]` : ''
     return `ملف: ${id} - ${name ?? `ملف ${id}`}${suffix}`
   }
 
+  private buildChoices(items: Array<{ id: number; name: string }>): Record<string, number> {
+    return Object.fromEntries(items.map(item => [item.name, item.id]))
+  }
+
+  private resolveChoice(choices: Record<string, number> | undefined, text: string): number | null {
+    if (!choices) return null
+    return choices[text] ?? null
+  }
+
   // ─── Parsers ────────────────────────────────────────────────────────────────
   private parseYearId(text: string): number | null {
     const match = text.match(/^سنة:\s*(\d+)\s*-/)
-    return match ? Number(match[1]) : null
-  }
-  private parseTermId(text: string): number | null {
-    const match = text.match(/^فصل:\s*(\d+)\s*-/)
-    return match ? Number(match[1]) : null
-  }
-  private parseCourseId(text: string): number | null {
-    const match = text.match(/^مادة:\s*(\d+)\s*-/)
     return match ? Number(match[1]) : null
   }
   private parseFileRowId(text: string): number | null {
