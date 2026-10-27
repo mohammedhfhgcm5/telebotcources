@@ -9,7 +9,7 @@ const CHANNEL_URL = 'https://t.me/+9p5va-ySLRkzMjE0'
   اهلاً . في بوت قلم حقوقي ☺️ إختر من الأزرار أدناه 
 
 البوت يتم تحديثه أولاً بِأوّل لمواكبة كل جديد
-بإشراف أ.فاروق قلة 
+بإشراف أ.فاروق قلة وعلاء سرميني 
 :القناة الرئيسية
 ${CHANNEL_URL}
 `;  
@@ -20,10 +20,10 @@ const BUTTONS = {
   admin: '⚙️ لوحة الإدارة',
 
   // File types
-  ftBank: '🏦 بنك قلم حقوقي',
+  ftBank: '🏦 بنك معلومات',
   ftGolden: '🌟 دهبية',
   ftCourses: '🎓 دورات',
-  ftRecordings: '🎥 تسجيلات المادة',
+  ftRecordings: '📝 ملخصات',
 
   // Admin
   addYear: '➕ إضافة سنة',
@@ -50,10 +50,10 @@ type MediaKind = 'document' | 'audio' | 'voice'
 
 const FILE_TYPE_LABELS: Record<FileType, string> = {
   SUMMARY: 'ملخص قلم حقوقي',
-  BANK: 'بنك قلم حقوقي',
+  BANK: 'بنك معلومات',
   GOLDEN: 'دهبية',
   COURSES: 'دورات',
-  RECORDINGS: 'تسجيلات المادة',
+  RECORDINGS: 'ملخصات',
 }
 
 const FILE_TYPE_BUTTONS: Record<string, FileType> = {
